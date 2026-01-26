@@ -64,9 +64,9 @@ final class ImportService: ObservableObject {
                 if let tm = match {
                     // CHECK IF ALREADY EXISTS IN LIBRARY
                     let tmdbID = tm.id
-                    let predicate = #Predicate<Movie> { $0.tmdbID == tmdbID }
-                    
-                    if (try? context.fetch(FetchDescriptor(predicate: predicate)).first) != nil {
+                    let allMovies = (try? context.fetch(FetchDescriptor<Movie>())) ?? []
+
+                    if allMovies.first(where: { $0.tmdbID == tmdbID }) != nil {
                         // MOVIE EXISTS -> SKIP (Prevent Duplicate)
                         duplicateCount += 1
                         continue

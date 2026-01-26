@@ -49,14 +49,14 @@ class ScoreService: ObservableObject {
         
         var scoreDTOs: [ScoreDTO] = []
         
+        // Fetch all movies once for efficiency
+        let allMovies = (try? context.fetch(FetchDescriptor<Movie>())) ?? []
+
         for score in scores {
             // Find the movie for this score
             let targetID = score.movieID
-            let descriptor = FetchDescriptor<Movie>(
-                predicate: #Predicate { $0.id == targetID }
-            )
-            
-            if let movie = try? context.fetch(descriptor).first {
+
+            if let movie = allMovies.first(where: { $0.id == targetID }) {
                 scoreDTOs.append(ScoreDTO(
                     user_id: user.id,
                     movie_id: score.movieID,
@@ -136,14 +136,13 @@ class ScoreService: ObservableObject {
         }
         
         var syncedCount = 0
-        
+
+        // Fetch all local scores once
+        let allLocalScores = (try? context.fetch(FetchDescriptor<Score>())) ?? []
+
         for cloudScore in cloudScores {
             // Check if score exists locally
-            let descriptor = FetchDescriptor<Score>(
-                predicate: #Predicate { $0.movieID == cloudScore.movie_id }
-            )
-            
-            if let localScore = try? context.fetch(descriptor).first {
+            if let localScore = allLocalScores.first(where: { $0.movieID == cloudScore.movie_id }) {
                 // Update local with cloud data if different
                 if localScore.display100 != cloudScore.display_100 {
                     localScore.display100 = cloudScore.display_100

@@ -298,9 +298,9 @@ struct MovieInfoView: View {
     private func saveToWatchlist() async {
         guard let movie else { return }
         
-        let targetID: UUID? = movie.id
-        let predicate = #Predicate<UserItem> { item in item.movie?.id == targetID }
-        let items = (try? context.fetch(FetchDescriptor<UserItem>(predicate: predicate))) ?? []
+        let targetID = movie.id
+        let allItems = (try? context.fetch(FetchDescriptor<UserItem>())) ?? []
+        let items = allItems.filter { $0.movie?.id == targetID }
         
             if !items.contains(where: { $0.state == .watchlist }) {
                 let newItem = UserItem(movie: movie, state: .watchlist, ownerId: userId)
@@ -389,14 +389,17 @@ struct MovieInfoView: View {
     private func loadUserData() async {
         guard let m = movie else { return }
         let movieID = m.id
-        let logPredicate = #Predicate<LogEntry> { $0.movie?.id == movieID && $0.ownerId == userId }
-        let scorePredicate = #Predicate<Score> { $0.movieID == movieID && $0.ownerId == userId }
-        let watchlistPredicate = #Predicate<UserItem> { $0.movie?.id == movieID && $0.state == .watchlist && $0.ownerId == userId }
-        
-        myLog = try? context.fetch(FetchDescriptor<LogEntry>(predicate: logPredicate)).first
-        myScore = try? context.fetch(FetchDescriptor<Score>(predicate: scorePredicate)).first
-        let watchlistItems = try? context.fetch(FetchDescriptor<UserItem>(predicate: watchlistPredicate))
-        isInWatchlist = (watchlistItems?.isEmpty == false)
+
+        // Fetch and filter in memory (predicates have issues with captured variables and optional chaining)
+        let allLogs = (try? context.fetch(FetchDescriptor<LogEntry>())) ?? []
+        myLog = allLogs.first { $0.movie?.id == movieID && $0.ownerId == userId }
+
+        let allScores = (try? context.fetch(FetchDescriptor<Score>())) ?? []
+        myScore = allScores.first { $0.movieID == movieID && $0.ownerId == userId }
+
+        let allItems = (try? context.fetch(FetchDescriptor<UserItem>())) ?? []
+        let watchlistItems = allItems.filter { $0.movie?.id == movieID && $0.state == .watchlist && $0.ownerId == userId }
+        isInWatchlist = !watchlistItems.isEmpty
     }
 }
 

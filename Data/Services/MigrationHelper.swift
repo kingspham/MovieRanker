@@ -13,17 +13,11 @@ class MigrationHelper {
         // Get current user
         let userId = AuthService.shared.currentUserId() ?? "guest"
         
-        // Capture the seen state before Predicate
-        let seenState = UserItem.State.seen
-        
-        // Get all UserItems that are seen
-        let userItemDescriptor = FetchDescriptor<UserItem>(
-            predicate: #Predicate<UserItem> { item in
-                item.state == seenState && item.ownerId == userId
-            }
-        )
-        
-        guard let seenItems = try? context.fetch(userItemDescriptor) else {
+        // Get all UserItems and filter in memory (predicates have issues with enums and captured variables)
+        let allUserItems = (try? context.fetch(FetchDescriptor<UserItem>())) ?? []
+        let seenItems = allUserItems.filter { $0.state == .seen && $0.ownerId == userId }
+
+        guard !seenItems.isEmpty else {
             print("❌ Failed to fetch UserItems")
             return
         }
