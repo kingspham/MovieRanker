@@ -3,6 +3,7 @@
 
 import SwiftUI
 import SwiftData
+import Combine
 
 // MARK: - Theme Manager
 enum AppTheme: String, CaseIterable, Identifiable {
@@ -29,16 +30,20 @@ enum AppTheme: String, CaseIterable, Identifiable {
     }
 }
 
-class ThemeManager: ObservableObject {
+@MainActor
+final class ThemeManager: ObservableObject {
     static let shared = ThemeManager()
 
-    @AppStorage("appTheme") var storedTheme: String = AppTheme.system.rawValue {
-        didSet { objectWillChange.send() }
-    }
+    @AppStorage("appTheme") var storedTheme: String = AppTheme.system.rawValue
+
+    @Published private var _themeUpdated = false
 
     var currentTheme: AppTheme {
         get { AppTheme(rawValue: storedTheme) ?? .system }
-        set { storedTheme = newValue.rawValue }
+        set {
+            storedTheme = newValue.rawValue
+            _themeUpdated.toggle()
+        }
     }
 
     var colorScheme: ColorScheme? {
@@ -46,29 +51,6 @@ class ThemeManager: ObservableObject {
     }
 
     private init() {}
-}
-
-// MARK: - Theme-Aware Colors
-extension Color {
-    static var adaptiveBackground: Color {
-        Color(uiColor: .systemBackground)
-    }
-
-    static var adaptiveSecondaryBackground: Color {
-        Color(uiColor: .secondarySystemBackground)
-    }
-
-    static var adaptiveGroupedBackground: Color {
-        Color(uiColor: .systemGroupedBackground)
-    }
-
-    static var adaptiveLabel: Color {
-        Color(uiColor: .label)
-    }
-
-    static var adaptiveSecondaryLabel: Color {
-        Color(uiColor: .secondaryLabel)
-    }
 }
 
 // MARK: - App Entry
@@ -109,7 +91,7 @@ private struct RootEntryView: View {
             switch appState {
             case .loading:
                 ZStack {
-                    Color.adaptiveBackground.ignoresSafeArea()
+                    Color(uiColor: .systemBackground).ignoresSafeArea()
                     VStack(spacing: 24) {
                         Image(systemName: "film.stack.fill")
                             .font(.system(size: 80))
@@ -118,7 +100,7 @@ private struct RootEntryView: View {
 
                         Text("Loading Library...")
                             .font(.headline)
-                            .foregroundStyle(.adaptiveLabel)
+                            .foregroundColor(Color(uiColor: .label))
 
                         ProgressView()
                     }
@@ -132,11 +114,11 @@ private struct RootEntryView: View {
         .task {
             // 1. Wait a moment to let the UI render first
             try? await Task.sleep(nanoseconds: 500_000_000) // 0.5s
-            
+
             // 2. Initialize Auth
             print("🔐 Bootstrapping Auth...")
             await AuthService.shared.bootstrap()
-            
+
             // 3. Check Session
             let actor = AuthService.shared.sessionActor()
             if let _ = try? await actor.session() {
@@ -161,23 +143,23 @@ private struct RootEntryView: View {
 
 private struct AppMainView: View {
     @StateObject private var notifService = NotificationService.shared
-    
+
     var body: some View {
         TabView {
             FeedView()
                 .tabItem { Label("Activity", systemImage: "bubble.left.and.bubble.right.fill") }
                 .badge(notifService.unreadCount > 0 ? notifService.unreadCount : 0)
-            
+
             SearchView()
                 .tabItem { Label("Explore", systemImage: "magnifyingglass") }
-            
+
             // MOVED: Leaderboard now in main tab bar
             LeaderboardView()
                 .tabItem { Label("Rankings", systemImage: "trophy.fill") }
-            
+
             YourListView()
                 .tabItem { Label("Library", systemImage: "books.vertical.fill") }
-            
+
             ProfileView()
                 .tabItem { Label("Profile", systemImage: "person.crop.circle") }
         }
