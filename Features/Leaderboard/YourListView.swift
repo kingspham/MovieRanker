@@ -68,6 +68,9 @@ struct SavedView: View {
         case predicted = "Predicted Score"
         case title = "Title"
         case year = "Year"
+        case metacritic = "Metacritic"
+        case imdb = "IMDb"
+        case rottenTomatoes = "Rotten Tomatoes"
         
         var id: String { rawValue }
     }
@@ -96,6 +99,12 @@ struct SavedView: View {
             return watchlistItems.sorted { ($0.movie?.title ?? "") < ($1.movie?.title ?? "") }
         case .year:
             return watchlistItems.sorted { ($0.movie?.year ?? 0) > ($1.movie?.year ?? 0) }
+        case .metacritic:
+            return watchlistItems.sorted { metaScore(for: $0) > metaScore(for: $1) }
+        case .imdb:
+            return watchlistItems.sorted { imdbScore(for: $0) > imdbScore(for: $1) }
+        case .rottenTomatoes:
+            return watchlistItems.sorted { rottenTomatoesScore(for: $0) > rottenTomatoesScore(for: $1) }
         }
     }
     
@@ -216,6 +225,19 @@ struct SavedView: View {
             mediaType: movie.mediaType,
             popularity: nil
         )
+    }
+    
+    private func metaScore(for item: UserItem) -> Int {
+        Int(item.movie?.metaScore ?? "0") ?? 0
+    }
+    
+    private func imdbScore(for item: UserItem) -> Double {
+        Double(item.movie?.imdbRating ?? "0") ?? 0
+    }
+    
+    private func rottenTomatoesScore(for item: UserItem) -> Int {
+        let value = item.movie?.rottenTomatoesRating ?? "0"
+        return Int(value.replacingOccurrences(of: "%", with: "")) ?? 0
     }
 }
 

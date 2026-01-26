@@ -27,7 +27,9 @@ struct MovieInfoView: View {
     @State private var tvSeasons: [TMDbTVDetail.TMDbSeason] = []
     
     @State private var externalRatings: ExternalRatings?
-    @Query private var allLogs: [LogEntry]
+    @State private var myLog: LogEntry?
+    @State private var myScore: Score?
+    @State private var isInWatchlist = false
     
     @State private var showSuccessMessage = false
     @State private var successMessageText = "Saved"
@@ -36,7 +38,7 @@ struct MovieInfoView: View {
     enum ActiveSheet: Identifiable {
         case browser(URL)
         case share(PlatformImage)
-        case log(Movie)
+        case log(Movie, LogEntry?)
         case ranking(Movie)
         var id: String {
             switch self {
@@ -52,18 +54,9 @@ struct MovieInfoView: View {
     @State private var showCreateListAlert = false
     @State private var newListName = ""
     @Query private var myLists: [CustomList]
-    @Query private var allScores: [Score]
     
-    var myScore: Int? {
-        guard let m = movie else { return nil }
-        return allScores.first(where: { $0.movieID == m.id && $0.ownerId == userId })?.display100
-    }
-    var hasRanked: Bool { myScore != nil }
-    
-    var myLog: LogEntry? {
-        guard let m = movie else { return nil }
-        return allLogs.first(where: { $0.movie?.id == m.id && $0.ownerId == userId })
-    }
+    var myScoreValue: Int? { myScore?.display100 }
+    var hasRanked: Bool { myScoreValue != nil }
     
     var isInTheaters: Bool {
         guard let y = tmdb.year, mediaType == "movie" else { return false }
@@ -119,12 +112,18 @@ struct MovieInfoView: View {
 
                 // 2. SCORE/PREDICTION
                 VStack(spacing: 12) {
-                    if let score = myScore {
+                    if let score = myScoreValue {
                         HStack(spacing: 12) {
                             ZStack { Circle().stroke(Color.blue, lineWidth: 4).frame(width: 50, height: 50); Text("\(score)").font(.headline).fontWeight(.black).foregroundStyle(.blue) }
                             VStack(alignment: .leading, spacing: 2) { Text("Your Score").font(.caption).textCase(.uppercase).foregroundStyle(.secondary); Text("Ranked on Leaderboard").font(.caption2).foregroundStyle(.secondary) }
                             Spacer()
                         }.padding(.horizontal)
+                        Button(role: .destructive) { removeRating() } label: {
+                            Text("Remove Rating")
+                                .font(.caption)
+                                .foregroundStyle(.red)
+                        }
+                        .padding(.horizontal)
                     } else if let pred = prediction {
                         HStack(spacing: 12) {
                             ZStack { Circle().stroke(Color.purple, lineWidth: 4).frame(width: 50, height: 50); Text("\(Int(pred.score * 10))").font(.headline).fontWeight(.black).foregroundStyle(.purple) }
@@ -145,12 +144,21 @@ struct MovieInfoView: View {
                         Button { handleReRank() } label: { Text("Re-Rank").fontWeight(.bold).frame(maxWidth: .infinity).padding(.vertical, 14).background(Color.orange).foregroundColor(.white).cornerRadius(12) }
                     } else {
                         Button {
-                            if let m = movie { activeSheet = .log(m) }
+                            if let m = movie { activeSheet = .log(m, myLog) }
                         } label: {
                             Text("Mark as Watched").fontWeight(.bold).frame(maxWidth: .infinity).padding(.vertical, 14).background(Color.accentColor).foregroundColor(.white).cornerRadius(12)
                         }
                     }
-                    Button { Task { await saveToWatchlist() } } label: { Text("Want to Watch").fontWeight(.bold).frame(maxWidth: .infinity).padding(.vertical, 14).background(Color.gray.opacity(0.15)).foregroundColor(.primary).cornerRadius(12) }
+                    Button { Task { await saveToWatchlist() } } label: {
+                        Text(isInWatchlist ? "Added to Watchlist" : "Want to Watch")
+                            .fontWeight(.bold)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 14)
+                            .background(isInWatchlist ? Color.green.opacity(0.2) : Color.gray.opacity(0.15))
+                            .foregroundColor(isInWatchlist ? .green : .primary)
+                            .cornerRadius(12)
+                    }
+                    .disabled(isInWatchlist)
                     Menu { Text("Add to List"); ForEach(myLists.filter { $0.ownerId == userId }) { list in Button { Task { await addToList(list) } } label: { Label(list.name, systemImage: "list.bullet") } }; Divider(); Button { showCreateListAlert = true } label: { Label("Create New List", systemImage: "plus") } } label: { Image(systemName: "ellipsis").font(.title3).frame(width: 50, height: 50).background(Color.gray.opacity(0.15)).foregroundColor(.primary).cornerRadius(12) }
                 }.padding(.horizontal)
 
@@ -190,8 +198,8 @@ struct MovieInfoView: View {
                 Text("Open \(url.absoluteString) in browser")
                 #endif
             case .share(let img): ShareSheet(items: [img])
-            case .log(let m):
-                LogSheet(movie: m, showRanking: Binding(
+            case .log(let m, let existingLog):
+                LogSheet(movie: m, existingLog: existingLog, showRanking: Binding(
                     get: { false },
                     set: { if $0 { activeSheet = .ranking(m) } }
                 ))
@@ -218,18 +226,29 @@ struct MovieInfoView: View {
             } catch {
                 print("⚠️ Could not fetch external ratings: \(error)")
             }
+            await loadUserData()
             
-            await loadRichDetails()
-            await loadCredits()
-            await loadProviders()
-            if mediaType == "tv" { await loadSeasons() }
+            async let detailsTask: Void = loadRichDetails()
+            async let creditsTask: Void = loadCredits()
+            async let providersTask: Void = loadProviders()
+            if mediaType == "tv" {
+                async let seasonsTask: Void = loadSeasons()
+                _ = await (detailsTask, creditsTask, providersTask, seasonsTask)
+            } else {
+                _ = await (detailsTask, creditsTask, providersTask)
+            }
+        }
+        .onChange(of: activeSheet) { _, newValue in
+            if newValue == nil {
+                Task { await loadUserData() }
+            }
         }
         .overlay(alignment: .top) { if showSuccessMessage { SuccessToast(text: successMessageText) } }
     }
     
     // MARK: - Logic
     @MainActor private func generateShareImage() {
-        guard let m = movie, let score = myScore else { return }
+        guard let m = movie, let score = myScoreValue else { return }
         
         #if os(iOS)
         let renderer = ImageRenderer(content: FlexCardView(movieTitle: m.title, posterPath: m.posterPath, score: score, rank: nil, username: "Me", avatarInitial: "M"))
@@ -338,20 +357,21 @@ struct MovieInfoView: View {
         let predicate = #Predicate<UserItem> { item in item.movie?.id == targetID }
         let items = (try? context.fetch(FetchDescriptor<UserItem>(predicate: predicate))) ?? []
         
-        if !items.contains(where: { $0.state == .watchlist }) {
-            let newItem = UserItem(movie: movie, state: .watchlist, ownerId: userId)
-            context.insert(newItem)
-            try? context.save()
-            
-            // 🆕 UPLOAD TO CLOUD!
-            await SyncManager.shared.syncWatchlistAdd(movie: movie, item: newItem)
-            
-            successMessageText = "Added to Watchlist"
-            showSuccessMessage = true
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                showSuccessMessage = false
+            if !items.contains(where: { $0.state == .watchlist }) {
+                let newItem = UserItem(movie: movie, state: .watchlist, ownerId: userId)
+                context.insert(newItem)
+                try? context.save()
+                
+                // 🆕 UPLOAD TO CLOUD!
+                await SyncManager.shared.syncWatchlistAdd(movie: movie, item: newItem)
+                
+                isInWatchlist = true
+                successMessageText = "Added to Watchlist"
+                showSuccessMessage = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                    showSuccessMessage = false
+                }
             }
-        }
     }
     
     // 🆕 FULL CLOUD SYNC ENABLED!
@@ -397,11 +417,41 @@ struct MovieInfoView: View {
     
     private func handleReRank() {
         guard let m = movie else { return }
-        if let score = allScores.first(where: { $0.movieID == m.id && $0.ownerId == userId }) {
+        if let score = myScore {
             context.delete(score)
             try? context.save()
+            Task { await ScoreService.shared.deleteScore(movieID: m.id) }
+            myScore = nil
         }
         activeSheet = .ranking(m)
+    }
+    
+    @MainActor
+    private func removeRating() {
+        guard let m = movie, let score = myScore else { return }
+        context.delete(score)
+        try? context.save()
+        myScore = nil
+        Task { await ScoreService.shared.deleteScore(movieID: m.id) }
+        successMessageText = "Rating removed"
+        showSuccessMessage = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+            showSuccessMessage = false
+        }
+    }
+    
+    @MainActor
+    private func loadUserData() async {
+        guard let m = movie else { return }
+        let movieID = m.id
+        let logPredicate = #Predicate<LogEntry> { $0.movie?.id == movieID && $0.ownerId == userId }
+        let scorePredicate = #Predicate<Score> { $0.movieID == movieID && $0.ownerId == userId }
+        let watchlistPredicate = #Predicate<UserItem> { $0.movie?.id == movieID && $0.state == .watchlist && $0.ownerId == userId }
+        
+        myLog = try? context.fetch(FetchDescriptor<LogEntry>(predicate: logPredicate)).first
+        myScore = try? context.fetch(FetchDescriptor<Score>(predicate: scorePredicate)).first
+        let watchlistItems = try? context.fetch(FetchDescriptor<UserItem>(predicate: watchlistPredicate))
+        isInWatchlist = (watchlistItems?.isEmpty == false)
     }
     
     private func genreIDToString(_ id: Int) -> String {
