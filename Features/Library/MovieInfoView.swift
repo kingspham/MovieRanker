@@ -27,16 +27,18 @@ struct MovieInfoView: View {
     @State private var tvSeasons: [TMDbTVDetail.TMDbSeason] = []
     
     @State private var externalRatings: ExternalRatings?
-    @Query private var allLogs: [LogEntry]
+    @State private var myLog: LogEntry?
+    @State private var myScore: Score?
+    @State private var isInWatchlist = false
     
     @State private var showSuccessMessage = false
     @State private var successMessageText = "Saved"
     @State private var userId: String = "guest"
     
-    enum ActiveSheet: Identifiable {
+    enum ActiveSheet: Identifiable, Equatable {
         case browser(URL)
         case share(PlatformImage)
-        case log(Movie)
+        case log(Movie, LogEntry?)
         case ranking(Movie)
         var id: String {
             switch self {
@@ -46,24 +48,18 @@ struct MovieInfoView: View {
             case .ranking: return "ranking"
             }
         }
+        static func == (lhs: ActiveSheet, rhs: ActiveSheet) -> Bool {
+            return lhs.id == rhs.id
+        }
     }
     @State private var activeSheet: ActiveSheet?
     
     @State private var showCreateListAlert = false
     @State private var newListName = ""
     @Query private var myLists: [CustomList]
-    @Query private var allScores: [Score]
     
-    var myScore: Int? {
-        guard let m = movie else { return nil }
-        return allScores.first(where: { $0.movieID == m.id && $0.ownerId == userId })?.display100
-    }
-    var hasRanked: Bool { myScore != nil }
-    
-    var myLog: LogEntry? {
-        guard let m = movie else { return nil }
-        return allLogs.first(where: { $0.movie?.id == m.id && $0.ownerId == userId })
-    }
+    var myScoreValue: Int? { myScore?.display100 }
+    var hasRanked: Bool { myScoreValue != nil }
     
     var isInTheaters: Bool {
         guard let y = tmdb.year, mediaType == "movie" else { return false }
@@ -74,109 +70,53 @@ struct MovieInfoView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
-                // 1. HERO
-                HStack(alignment: .top, spacing: 16) {
-                    PosterThumb(posterPath: tmdb.posterPath, title: tmdb.displayTitle, width: 120).shadow(radius: 8)
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text(tmdb.displayTitle).font(.title3).fontWeight(.black)
-                        if let genres = movie?.genreIDs, !genres.isEmpty {
-                            Text(genres.map(genreIDToString).prefix(3).joined(separator: " • "))
-                                .font(.caption).bold().foregroundStyle(.secondary)
-                        }
-                        if let y = tmdb.year {
-                            Text(mediaType == "tv" ? "TV Series • \(y)" : String(y))
-                                .foregroundStyle(.secondary).font(.subheadline)
-                        }
-                        
-                        if let watchDate = myLog?.watchedOn {
-                            HStack(spacing: 4) {
-                                Image(systemName: "calendar")
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
-                                Text("Watched \(watchDate.formatted(date: .abbreviated, time: .omitted))")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                        
-                        if let ratings = externalRatings {
-                            HStack(spacing: 12) {
-                                if let imdb = ratings.imdb {
-                                    ExternalRatingBadge(source: "IMDb", score: imdb, color: .yellow)
-                                }
-                                if let rt = ratings.rottenTomatoes {
-                                    ExternalRatingBadge(source: "RT", score: rt, color: .red)
-                                }
-                                if let meta = ratings.metacritic {
-                                    ExternalRatingBadge(source: "Meta", score: meta, color: .green)
-                                }
-                            }
-                            .padding(.top, 4)
-                        }
-                    }
-                    Spacer()
-                }.padding(.horizontal)
-
-                // 2. SCORE/PREDICTION
-                VStack(spacing: 12) {
-                    if let score = myScore {
-                        HStack(spacing: 12) {
-                            ZStack { Circle().stroke(Color.blue, lineWidth: 4).frame(width: 50, height: 50); Text("\(score)").font(.headline).fontWeight(.black).foregroundStyle(.blue) }
-                            VStack(alignment: .leading, spacing: 2) { Text("Your Score").font(.caption).textCase(.uppercase).foregroundStyle(.secondary); Text("Ranked on Leaderboard").font(.caption2).foregroundStyle(.secondary) }
-                            Spacer()
-                        }.padding(.horizontal)
-                    } else if let pred = prediction {
-                        HStack(spacing: 12) {
-                            ZStack { Circle().stroke(Color.purple, lineWidth: 4).frame(width: 50, height: 50); Text("\(Int(pred.score * 10))").font(.headline).fontWeight(.black).foregroundStyle(.purple) }
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("Predicted Score").font(.caption).textCase(.uppercase).foregroundStyle(.secondary)
-                                if !pred.reasons.isEmpty {
-                                    Text(pred.reasons.first ?? "Based on your tastes").font(.caption2).foregroundStyle(.secondary)
-                                }
-                            }
-                            Spacer()
-                        }.padding(.horizontal)
-                    }
-                }
-
-                // 3. ACTIONS
-                HStack(spacing: 12) {
-                    if hasRanked {
-                        Button { handleReRank() } label: { Text("Re-Rank").fontWeight(.bold).frame(maxWidth: .infinity).padding(.vertical, 14).background(Color.orange).foregroundColor(.white).cornerRadius(12) }
-                    } else {
-                        Button {
-                            if let m = movie { activeSheet = .log(m) }
-                        } label: {
-                            Text("Mark as Watched").fontWeight(.bold).frame(maxWidth: .infinity).padding(.vertical, 14).background(Color.accentColor).foregroundColor(.white).cornerRadius(12)
-                        }
-                    }
-                    Button { Task { await saveToWatchlist() } } label: { Text("Want to Watch").fontWeight(.bold).frame(maxWidth: .infinity).padding(.vertical, 14).background(Color.gray.opacity(0.15)).foregroundColor(.primary).cornerRadius(12) }
-                    Menu { Text("Add to List"); ForEach(myLists.filter { $0.ownerId == userId }) { list in Button { Task { await addToList(list) } } label: { Label(list.name, systemImage: "list.bullet") } }; Divider(); Button { showCreateListAlert = true } label: { Label("Create New List", systemImage: "plus") } } label: { Image(systemName: "ellipsis").font(.title3).frame(width: 50, height: 50).background(Color.gray.opacity(0.15)).foregroundColor(.primary).cornerRadius(12) }
-                }.padding(.horizontal)
-
+                HeroHeaderView(tmdb: tmdb, movie: movie, myLog: myLog, externalRatings: externalRatings)
+                
+                ScoreOrPredictionView(myScoreValue: myScoreValue, prediction: prediction, removeRating: removeRating)
+                
+                ActionsRowView(
+                    hasRanked: hasRanked,
+                    isInWatchlist: isInWatchlist,
+                    myLists: myLists,
+                    userId: userId,
+                    onReRank: handleReRank,
+                    onMarkWatched: { if let m = movie { activeSheet = .log(m, myLog) } },
+                    onSaveToWatchlist: { Task { await saveToWatchlist() } },
+                    onAddToList: { list in Task { await addToList(list) } },
+                    onCreateList: { showCreateListAlert = true }
+                )
+                
                 Divider().padding(.horizontal)
                 
-                // 4. TV SEASONS
+                SeasonsSectionView(mediaType: mediaType, tmdb: tmdb, tvSeasons: tvSeasons, context: context)
                 if mediaType == "tv" && !tvSeasons.isEmpty {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("Seasons").font(.headline).padding(.horizontal)
-                        ScrollView(.horizontal, showsIndicators: false) { HStack(spacing: 16) { ForEach(tvSeasons) { season in NavigationLink { MovieInfoView(tmdb: TMDbItem(id: season.id, title: "\(tmdb.displayTitle): \(season.name)", overview: "Season \(season.seasonNumber)", releaseDate: season.airDate, posterPath: season.posterPath ?? tmdb.posterPath, genreIds: tmdb.genreIds, mediaType: "tv"), mediaType: "tv").modelContext(context) } label: { VStack { PosterThumb(posterPath: season.posterPath ?? tmdb.posterPath, title: season.name, width: 100).shadow(radius: 4); Text(season.name).font(.caption).bold().foregroundStyle(.primary); Text("\(season.episodeCount ?? 0) eps").font(.caption2).foregroundStyle(.secondary) } } } }.padding(.horizontal) }
-                    }
                     Divider().padding(.horizontal)
                 }
                 
-                // 5. PROVIDERS
-                if !providers.isEmpty {
-                    VStack(alignment: .leading, spacing: 12) { Text("Where to Watch").font(.headline); ScrollView(.horizontal, showsIndicators: false) { HStack(spacing: 16) { ForEach(providers) { prov in Button { DeepLinkManager.open(providerName: prov.providerName, title: tmdb.displayTitle) { url in activeSheet = .browser(url) } } label: { if let logo = prov.logoPath, let url = TMDbClient.makeImageURL(path: logo, size: .w185) { AsyncImage(url: url) { phase in if let img = phase.image { img.resizable().scaledToFit() } else { Color.gray.opacity(0.2) } }.frame(width: 44, height: 44).clipShape(RoundedRectangle(cornerRadius: 10)) } } } }.padding(.horizontal) } }
-                }
-
-                if let ov = tmdb.overview, !ov.isEmpty { VStack(alignment: .leading, spacing: 8) { Text("Overview").font(.headline); Text(ov).font(.body).foregroundStyle(.secondary).lineSpacing(4) }.padding(.horizontal) }
+                ProvidersSectionView(providers: providers, title: tmdb.displayTitle)
                 
-                if !cast.isEmpty { VStack(alignment: .leading, spacing: 12) { Text("Top Cast").font(.headline).padding(.horizontal); ScrollView(.horizontal, showsIndicators: false) { HStack(spacing: 16) { ForEach(cast.prefix(10)) { member in NavigationLink { PersonDetailView(personId: member.id, personName: member.name) } label: { VStack { AsyncImage(url: TMDbClient.makeImageURL(path: member.profilePath, size: .w185)) { phase in if let img = phase.image { img.resizable().scaledToFill() } else { Color.gray.opacity(0.3) } }.frame(width: 80, height: 80).clipShape(Circle()); Text(member.name).font(.caption).bold().multilineTextAlignment(.center).lineLimit(2).frame(width: 80).foregroundStyle(.primary); if let char = member.character { Text(char).font(.caption2).foregroundStyle(.secondary).multilineTextAlignment(.center).lineLimit(1).frame(width: 80) } } } } }.padding(.horizontal) } } }
+                if let ov = tmdb.overview, !ov.isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Overview").font(.headline)
+                        Text(ov).font(.body).foregroundStyle(.secondary).lineSpacing(4)
+                    }
+                    .padding(.horizontal)
+                }
+                
+                TopCastSectionView(cast: cast)
+                
                 Spacer(minLength: 50)
             }
         }
-        .toolbar { ToolbarItem(placement: .primaryAction) { if hasRanked { Button { generateShareImage() } label: { Image(systemName: "square.and.arrow.up") } } } }
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                if hasRanked {
+                    Button { generateShareImage() } label: {
+                        Image(systemName: "square.and.arrow.up")
+                    }
+                }
+            }
+        }
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
@@ -190,15 +130,19 @@ struct MovieInfoView: View {
                 Text("Open \(url.absoluteString) in browser")
                 #endif
             case .share(let img): ShareSheet(items: [img])
-            case .log(let m):
-                LogSheet(movie: m, showRanking: Binding(
+            case .log(let m, let existingLog):
+                LogSheet(movie: m, existingLog: existingLog, showRanking: Binding(
                     get: { false },
                     set: { if $0 { activeSheet = .ranking(m) } }
                 ))
             case .ranking(let m): RankingSheet(newMovie: m)
             }
         }
-        .alert("Create List", isPresented: $showCreateListAlert) { TextField("List Name", text: $newListName); Button("Cancel", role: .cancel) { newListName = "" }; Button("Create & Add") { Task { await createAndAddList() } } }
+        .alert("Create List", isPresented: $showCreateListAlert) {
+            TextField("List Name", text: $newListName)
+            Button("Cancel", role: .cancel) { newListName = "" }
+            Button("Create & Add") { Task { await createAndAddList() } }
+        }
         .task {
             userId = AuthService.shared.currentUserId() ?? "guest"
             
@@ -218,18 +162,33 @@ struct MovieInfoView: View {
             } catch {
                 print("⚠️ Could not fetch external ratings: \(error)")
             }
+            await loadUserData()
             
-            await loadRichDetails()
-            await loadCredits()
-            await loadProviders()
-            if mediaType == "tv" { await loadSeasons() }
+            async let detailsTask: Void = loadRichDetails()
+            async let creditsTask: Void = loadCredits()
+            async let providersTask: Void = loadProviders()
+            if mediaType == "tv" {
+                async let seasonsTask: Void = loadSeasons()
+                _ = await (detailsTask, creditsTask, providersTask, seasonsTask)
+            } else {
+                _ = await (detailsTask, creditsTask, providersTask)
+            }
         }
-        .overlay(alignment: .top) { if showSuccessMessage { SuccessToast(text: successMessageText) } }
+        .onChange(of: activeSheet) { _, newValue in
+            if newValue == nil {
+                Task { await loadUserData() }
+            }
+        }
+        .overlay(alignment: .top) {
+            if showSuccessMessage {
+                SuccessToast(text: successMessageText)
+            }
+        }
     }
     
     // MARK: - Logic
     @MainActor private func generateShareImage() {
-        guard let m = movie, let score = myScore else { return }
+        guard let m = movie, let score = myScoreValue else { return }
         
         #if os(iOS)
         let renderer = ImageRenderer(content: FlexCardView(movieTitle: m.title, posterPath: m.posterPath, score: score, rank: nil, username: "Me", avatarInitial: "M"))
@@ -338,20 +297,21 @@ struct MovieInfoView: View {
         let predicate = #Predicate<UserItem> { item in item.movie?.id == targetID }
         let items = (try? context.fetch(FetchDescriptor<UserItem>(predicate: predicate))) ?? []
         
-        if !items.contains(where: { $0.state == .watchlist }) {
-            let newItem = UserItem(movie: movie, state: .watchlist, ownerId: userId)
-            context.insert(newItem)
-            try? context.save()
-            
-            // 🆕 UPLOAD TO CLOUD!
-            await SyncManager.shared.syncWatchlistAdd(movie: movie, item: newItem)
-            
-            successMessageText = "Added to Watchlist"
-            showSuccessMessage = true
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                showSuccessMessage = false
+            if !items.contains(where: { $0.state == .watchlist }) {
+                let newItem = UserItem(movie: movie, state: .watchlist, ownerId: userId)
+                context.insert(newItem)
+                try? context.save()
+                
+                // 🆕 UPLOAD TO CLOUD!
+                await SyncManager.shared.syncWatchlistAdd(movie: movie, item: newItem)
+                
+                isInWatchlist = true
+                successMessageText = "Added to Watchlist"
+                showSuccessMessage = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                    showSuccessMessage = false
+                }
             }
-        }
     }
     
     // 🆕 FULL CLOUD SYNC ENABLED!
@@ -397,11 +357,97 @@ struct MovieInfoView: View {
     
     private func handleReRank() {
         guard let m = movie else { return }
-        if let score = allScores.first(where: { $0.movieID == m.id && $0.ownerId == userId }) {
+        if let score = myScore {
             context.delete(score)
             try? context.save()
+            Task { await ScoreService.shared.deleteScore(movieID: m.id) }
+            myScore = nil
         }
         activeSheet = .ranking(m)
+    }
+    
+    @MainActor
+    private func removeRating() {
+        guard let m = movie, let score = myScore else { return }
+        context.delete(score)
+        try? context.save()
+        myScore = nil
+        Task { await ScoreService.shared.deleteScore(movieID: m.id) }
+        successMessageText = "Rating removed"
+        showSuccessMessage = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+            showSuccessMessage = false
+        }
+    }
+    
+    @MainActor
+    private func loadUserData() async {
+        guard let m = movie else { return }
+        let movieID = m.id
+        let logPredicate = #Predicate<LogEntry> { $0.movie?.id == movieID && $0.ownerId == userId }
+        let scorePredicate = #Predicate<Score> { $0.movieID == movieID && $0.ownerId == userId }
+        let watchlistPredicate = #Predicate<UserItem> { $0.movie?.id == movieID && $0.state == .watchlist && $0.ownerId == userId }
+        
+        myLog = try? context.fetch(FetchDescriptor<LogEntry>(predicate: logPredicate)).first
+        myScore = try? context.fetch(FetchDescriptor<Score>(predicate: scorePredicate)).first
+        let watchlistItems = try? context.fetch(FetchDescriptor<UserItem>(predicate: watchlistPredicate))
+        isInWatchlist = (watchlistItems?.isEmpty == false)
+    }
+}
+
+private struct HeroHeaderView: View {
+    let tmdb: TMDbItem
+    let movie: Movie?
+    let myLog: LogEntry?
+    let externalRatings: ExternalRatings?
+    
+    var body: some View {
+        HStack(alignment: .top, spacing: 16) {
+            PosterThumb(posterPath: tmdb.posterPath, title: tmdb.displayTitle, width: 120)
+                .shadow(radius: 8)
+            VStack(alignment: .leading, spacing: 6) {
+                Text(tmdb.displayTitle)
+                    .font(.title3)
+                    .fontWeight(.black)
+                if let genres = movie?.genreIDs, !genres.isEmpty {
+                    Text(genres.map(genreIDToString).prefix(3).joined(separator: " • "))
+                        .font(.caption)
+                        .bold()
+                        .foregroundStyle(.secondary)
+                }
+                if let y = tmdb.year {
+                    Text(tmdb.mediaType == "tv" ? "TV Series • \(y)" : String(y))
+                        .foregroundStyle(.secondary)
+                        .font(.subheadline)
+                }
+                if let watchDate = myLog?.watchedOn {
+                    HStack(spacing: 4) {
+                        Image(systemName: "calendar")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                        Text("Watched \(watchDate.formatted(date: .abbreviated, time: .omitted))")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                if let ratings = externalRatings {
+                    HStack(spacing: 12) {
+                        if let imdb = ratings.imdb {
+                            ExternalRatingBadge(source: "IMDb", score: imdb, color: .yellow)
+                        }
+                        if let rt = ratings.rottenTomatoes {
+                            ExternalRatingBadge(source: "RT", score: rt, color: .red)
+                        }
+                        if let meta = ratings.metacritic {
+                            ExternalRatingBadge(source: "Meta", score: meta, color: .green)
+                        }
+                    }
+                    .padding(.top, 4)
+                }
+            }
+            Spacer()
+        }
+        .padding(.horizontal)
     }
     
     private func genreIDToString(_ id: Int) -> String {
@@ -430,6 +476,244 @@ struct MovieInfoView: View {
     }
 }
 
+private struct ScoreOrPredictionView: View {
+    let myScoreValue: Int?
+    let prediction: PredictionExplanation?
+    let removeRating: () -> Void
+    
+    var body: some View {
+        VStack(spacing: 12) {
+            if let score = myScoreValue {
+                HStack(spacing: 12) {
+                    ZStack {
+                        Circle().stroke(Color.blue, lineWidth: 4).frame(width: 50, height: 50)
+                        Text("\(score)").font(.headline).fontWeight(.black).foregroundStyle(.blue)
+                    }
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Your Score").font(.caption).textCase(.uppercase).foregroundStyle(.secondary)
+                        Text("Ranked on Leaderboard").font(.caption2).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                }
+                .padding(.horizontal)
+                Button(role: .destructive) { removeRating() } label: {
+                    Text("Remove Rating")
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                }
+                .padding(.horizontal)
+            } else if let pred = prediction {
+                HStack(spacing: 12) {
+                    ZStack {
+                        Circle().stroke(Color.purple, lineWidth: 4).frame(width: 50, height: 50)
+                        Text("\(Int(pred.score * 10))").font(.headline).fontWeight(.black).foregroundStyle(.purple)
+                    }
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Predicted Score").font(.caption).textCase(.uppercase).foregroundStyle(.secondary)
+                        if !pred.reasons.isEmpty {
+                            Text(pred.reasons.first ?? "Based on your tastes").font(.caption2).foregroundStyle(.secondary)
+                        }
+                    }
+                    Spacer()
+                }
+                .padding(.horizontal)
+            }
+        }
+    }
+}
+
+private struct ActionsRowView: View {
+    let hasRanked: Bool
+    let isInWatchlist: Bool
+    let myLists: [CustomList]
+    let userId: String
+    let onReRank: () -> Void
+    let onMarkWatched: () -> Void
+    let onSaveToWatchlist: () -> Void
+    let onAddToList: (CustomList) -> Void
+    let onCreateList: () -> Void
+    
+    var body: some View {
+        HStack(spacing: 12) {
+            if hasRanked {
+                Button { onReRank() } label: {
+                    Text("Re-Rank")
+                        .fontWeight(.bold)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
+                        .background(Color.orange)
+                        .foregroundColor(.white)
+                        .cornerRadius(12)
+                }
+            } else {
+                Button { onMarkWatched() } label: {
+                    Text("Mark as Watched")
+                        .fontWeight(.bold)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
+                        .background(Color.accentColor)
+                        .foregroundColor(.white)
+                        .cornerRadius(12)
+                }
+            }
+            Button { onSaveToWatchlist() } label: {
+                Text(isInWatchlist ? "Added to Watchlist" : "Want to Watch")
+                    .fontWeight(.bold)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                    .background(isInWatchlist ? Color.green.opacity(0.2) : Color.gray.opacity(0.15))
+                    .foregroundColor(isInWatchlist ? .green : .primary)
+                    .cornerRadius(12)
+            }
+            .disabled(isInWatchlist)
+            Menu {
+                Text("Add to List")
+                ForEach(myLists.filter { $0.ownerId == userId }) { list in
+                    Button { onAddToList(list) } label: { Label(list.name, systemImage: "list.bullet") }
+                }
+                Divider()
+                Button { onCreateList() } label: { Label("Create New List", systemImage: "plus") }
+            } label: {
+                Image(systemName: "ellipsis")
+                    .font(.title3)
+                    .frame(width: 50, height: 50)
+                    .background(Color.gray.opacity(0.15))
+                    .foregroundColor(.primary)
+                    .cornerRadius(12)
+            }
+        }
+        .padding(.horizontal)
+    }
+}
+
+private struct SeasonsSectionView: View {
+    let mediaType: String
+    let tmdb: TMDbItem
+    let tvSeasons: [TMDbTVDetail.TMDbSeason]
+    let context: ModelContext
+    
+    var body: some View {
+        if mediaType == "tv" && !tvSeasons.isEmpty {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Seasons").font(.headline).padding(.horizontal)
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 16) {
+                        ForEach(tvSeasons) { season in
+                            NavigationLink {
+                                MovieInfoView(
+                                    tmdb: TMDbItem(
+                                        id: season.id,
+                                        title: "\(tmdb.displayTitle): \(season.name)",
+                                        overview: "Season \(season.seasonNumber)",
+                                        releaseDate: season.airDate,
+                                        posterPath: season.posterPath ?? tmdb.posterPath,
+                                        genreIds: tmdb.genreIds,
+                                        mediaType: "tv"
+                                    ),
+                                    mediaType: "tv"
+                                )
+                                .modelContext(context)
+                            } label: {
+                                VStack {
+                                    PosterThumb(posterPath: season.posterPath ?? tmdb.posterPath, title: season.name, width: 100)
+                                        .shadow(radius: 4)
+                                    Text(season.name)
+                                        .font(.caption)
+                                        .bold()
+                                        .foregroundStyle(.primary)
+                                    Text("\(season.episodeCount ?? 0) eps")
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+                    }
+                }
+                .padding(.horizontal)
+            }
+        }
+    }
+}
+
+private struct ProvidersSectionView: View {
+    let providers: [ProviderItem]
+    let title: String
+    
+    var body: some View {
+        if !providers.isEmpty {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Where to Watch").font(.headline)
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 16) {
+                        ForEach(providers) { prov in
+                            Button {
+                                DeepLinkManager.open(providerName: prov.providerName, title: title) { url in
+                                    // This button only opens; parent view handles sheet presentation.
+                                    #if os(iOS)
+                                    UIApplication.shared.open(url)
+                                    #endif
+                                }
+                            } label: {
+                                if let logo = prov.logoPath, let url = TMDbClient.makeImageURL(path: logo, size: .w185) {
+                                    AsyncImage(url: url) { phase in
+                                        if let img = phase.image { img.resizable().scaledToFit() } else { Color.gray.opacity(0.2) }
+                                    }
+                                    .frame(width: 44, height: 44)
+                                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                                }
+                            }
+                        }
+                    }
+                }
+                .padding(.horizontal)
+            }
+        }
+    }
+}
+
+private struct TopCastSectionView: View {
+    let cast: [CastMember]
+    
+    var body: some View {
+        if !cast.isEmpty {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Top Cast").font(.headline).padding(.horizontal)
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 16) {
+                        ForEach(cast.prefix(10)) { member in
+                            NavigationLink { PersonDetailView(personId: member.id, personName: member.name) } label: {
+                                VStack {
+                                    AsyncImage(url: TMDbClient.makeImageURL(path: member.profilePath, size: .w185)) { phase in
+                                        if let img = phase.image { img.resizable().scaledToFill() } else { Color.gray.opacity(0.3) }
+                                    }
+                                    .frame(width: 80, height: 80)
+                                    .clipShape(Circle())
+                                    Text(member.name)
+                                        .font(.caption)
+                                        .bold()
+                                        .multilineTextAlignment(.center)
+                                        .lineLimit(2)
+                                        .frame(width: 80)
+                                        .foregroundStyle(.primary)
+                                    if let char = member.character {
+                                        Text(char)
+                                            .font(.caption2)
+                                            .foregroundStyle(.secondary)
+                                            .multilineTextAlignment(.center)
+                                            .lineLimit(1)
+                                            .frame(width: 80)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                .padding(.horizontal)
+            }
+        }
+    }
+}
+
 struct ExternalRatingBadge: View {
     let source: String
     let score: String
@@ -447,3 +731,4 @@ struct ExternalRatingBadge: View {
         }
     }
 }
+

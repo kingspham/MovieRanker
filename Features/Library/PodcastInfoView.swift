@@ -62,7 +62,7 @@ struct PodcastInfoView: View {
                 #endif
             }
         }
-        .sheet(isPresented: $showLogSheet) { if let m = movie { LogSheet(movie: m, showRanking: $showRankingSheet) } }
+        .sheet(isPresented: $showLogSheet) { if let m = movie { LogSheet(movie: m, existingLog: nil, showRanking: $showRankingSheet) } }
         .sheet(isPresented: $showRankingSheet) { if let m = movie { RankingSheet(newMovie: m) } }
         .task {
             let actor = AuthService.shared.sessionActor(); if let s = try? await actor.session() { userId = s.userId }

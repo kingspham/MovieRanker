@@ -139,7 +139,7 @@ struct BookInfoView: View {
         .navigationTitle("Book Details")
         .sheet(isPresented: $showLogSheet) {
             if let m = movie {
-                LogSheet(movie: m, showRanking: $showRankingSheet)
+                LogSheet(movie: m, existingLog: nil, showRanking: $showRankingSheet)
             }
         }
         .sheet(isPresented: $showRankingSheet) {

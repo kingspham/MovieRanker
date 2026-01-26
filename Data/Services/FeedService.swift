@@ -15,7 +15,13 @@ class FeedService: ObservableObject {
     func fetchGlobalFeed() async {
         guard let client = AuthService.shared.client else { return }
         do {
-            let response: [CloudLog] = try await client.from("logs").select("*, profiles(*)").order("created_at", ascending: false).limit(50).execute().value
+            let response: [CloudLog] = try await client
+                .from("logs")
+                .select("*, profiles(*), likes(user_id), comments(id)")
+                .order("created_at", ascending: false)
+                .limit(50)
+                .execute()
+                .value
             self.feedItems = response
         } catch { print("Global Feed Error: \(error)") }
     }
@@ -25,17 +31,65 @@ class FeedService: ObservableObject {
         if friendIDs.isEmpty { await fetchGlobalFeed(); return }
         var targetIDs = friendIDs; targetIDs.append(myId)
         do {
-            let response: [CloudLog] = try await client.from("logs").select("*, profiles(*)").in("user_id", values: targetIDs).order("created_at", ascending: false).limit(50).execute().value
+            let response: [CloudLog] = try await client
+                .from("logs")
+                .select("*, profiles(*), likes(user_id), comments(id)")
+                .in("user_id", values: targetIDs)
+                .order("created_at", ascending: false)
+                .limit(50)
+                .execute()
+                .value
             self.feedItems = response
         } catch { print("Friends Feed Error: \(error)") }
     }
     
-    func toggleLike(log: CloudLog) async { /* Placeholder */ }
+    func toggleLike(log: CloudLog) async {
+        guard let client = AuthService.shared.client,
+              let user = try? await client.auth.session.user else { return }
+        
+        do {
+            let existing: [CloudLog.LikeStub] = try await client
+                .from("likes")
+                .select("user_id")
+                .eq("log_id", value: log.id)
+                .eq("user_id", value: user.id)
+                .execute()
+                .value
+            
+            if existing.isEmpty {
+                struct LikePayload: Encodable { let user_id: UUID; let log_id: UUID }
+                let payload = LikePayload(user_id: user.id, log_id: log.id)
+                try await client.from("likes").insert(payload).execute()
+                
+                await NotificationService.shared.sendNotification(
+                    to: log.userId,
+                    type: "like",
+                    message: "liked your review of \(log.title)",
+                    relatedId: log.id
+                )
+            } else {
+                _ = try await client
+                    .from("likes")
+                    .delete()
+                    .eq("log_id", value: log.id)
+                    .eq("user_id", value: user.id)
+                    .execute()
+            }
+        } catch {
+            print("Like Error: \(error)")
+        }
+    }
     
     func postComment(log: CloudLog, text: String, isSpoiler: Bool) async throws {
         guard let client = AuthService.shared.client, let user = try? await client.auth.session.user else { return }
         let newComment = CommentEncodable(user_id: user.id, log_id: log.id, body: text, is_spoiler: isSpoiler)
         try await client.from("comments").insert(newComment).execute()
+        await NotificationService.shared.sendNotification(
+            to: log.userId,
+            type: "comment",
+            message: "commented on your review of \(log.title)",
+            relatedId: log.id
+        )
     }
     
     // FIXED: Changed movie_title to title and added all fields
