@@ -29,18 +29,16 @@ enum AppTheme: String, CaseIterable, Identifiable {
     }
 }
 
-@MainActor
 class ThemeManager: ObservableObject {
     static let shared = ThemeManager()
 
-    @AppStorage("appTheme") private var storedTheme: String = AppTheme.system.rawValue
+    @AppStorage("appTheme") var storedTheme: String = AppTheme.system.rawValue {
+        didSet { objectWillChange.send() }
+    }
 
     var currentTheme: AppTheme {
         get { AppTheme(rawValue: storedTheme) ?? .system }
-        set {
-            storedTheme = newValue.rawValue
-            objectWillChange.send()
-        }
+        set { storedTheme = newValue.rawValue }
     }
 
     var colorScheme: ColorScheme? {
