@@ -5,6 +5,23 @@ import Foundation
 import Supabase
 import SwiftData
 
+// Local representation of user item states used for syncing
+enum UserItemState: String, Codable, CaseIterable {
+    case watchlist
+    case seen
+    case favorite
+}
+
+extension UserItem.State {
+    init(from serviceState: UserItemState) {
+        switch serviceState {
+        case .watchlist: self = .watchlist
+        case .seen: self = .seen
+        case .favorite: self = .favorite
+        }
+    }
+}
+
 @MainActor
 class UserItemService {
     static let shared = UserItemService()
@@ -101,9 +118,9 @@ class UserItemService {
                 movie = Movie(
                     title: cloudItem.title,
                     year: nil,
+                    tmdbID: cloudItem.tmdb_id,
                     posterPath: cloudItem.poster_path,
-                    mediaType: cloudItem.media_type,
-                    tmdbID: cloudItem.tmdb_id
+                    mediaType: cloudItem.media_type
                 )
                 movie.id = cloudItem.movie_id
                 context.insert(movie)
@@ -111,7 +128,7 @@ class UserItemService {
 
             // Create the user item
             let state = UserItemState(rawValue: cloudItem.state) ?? .watchlist
-            let newItem = UserItem(movie: movie, state: state, ownerId: cloudItem.user_id.uuidString)
+            let newItem = UserItem(movie: movie, state: UserItem.State(from: state), ownerId: cloudItem.user_id.uuidString)
             context.insert(newItem)
             syncedCount += 1
         }
@@ -138,3 +155,4 @@ struct UserItemDTO: Codable {
     let state: String // "seen", "watchlist", "favorite"
     let created_at: Date
 }
+
