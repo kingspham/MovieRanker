@@ -11,7 +11,15 @@ struct WatchHistoryView: View {
     
     @State private var userId: String = "guest"
     @State private var searchText: String = ""
-    @State private var sortOrder: HistorySortOption = .dateWatched
+    @AppStorage("historySortOrder") private var sortOrderRaw: String = HistorySortOption.dateWatched.rawValue
+
+    var sortOrder: HistorySortOption {
+        HistorySortOption(rawValue: sortOrderRaw) ?? .dateWatched
+    }
+
+    func setSortOrder(_ newValue: HistorySortOption) {
+        sortOrderRaw = newValue.rawValue
+    }
     
     enum HistorySortOption: String, CaseIterable, Identifiable {
         case dateWatched = "Date Watched"
@@ -51,7 +59,10 @@ struct WatchHistoryView: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 12) {
                     Menu {
-                        Picker("Sort By", selection: $sortOrder) {
+                        Picker("Sort By", selection: Binding(
+                            get: { sortOrder },
+                            set: { setSortOrder($0) }
+                        )) {
                             ForEach(HistorySortOption.allCases) { option in
                                 Label(option.rawValue, systemImage: "arrow.up.arrow.down").tag(option)
                             }
@@ -94,18 +105,18 @@ struct WatchHistoryView: View {
                         } label: {
                             HStack(spacing: 12) {
                                 PosterThumb(posterPath: movie.posterPath, title: movie.title, width: 50)
-                                
+
                                 VStack(alignment: .leading, spacing: 4) {
                                     Text(movie.title)
                                         .font(.headline)
-                                    
+
                                     HStack(spacing: 8) {
                                         if let date = log.watchedOn {
                                             Text(date.formatted(date: .abbreviated, time: .omitted))
                                                 .font(.caption)
                                                 .foregroundStyle(.secondary)
                                         }
-                                        
+
                                         if let year = movie.year {
                                             Text("(\(year))")
                                                 .font(.caption)
@@ -113,15 +124,22 @@ struct WatchHistoryView: View {
                                         }
                                     }
                                 }
-                                
+
                                 Spacer()
-                                
+
                                 if let score = scores.first(where: { $0.movieID == movie.id && $0.ownerId == userId }) {
                                     Text("\(score.display100)")
                                         .font(.title3)
                                         .fontWeight(.bold)
                                         .foregroundStyle(.green)
                                 }
+                            }
+                        }
+                        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                            Button(role: .destructive) {
+                                deleteLogEntry(log, movie: movie)
+                            } label: {
+                                Label("Delete", systemImage: "trash")
                             }
                         }
                     }
@@ -134,5 +152,23 @@ struct WatchHistoryView: View {
         .task {
             userId = AuthService.shared.currentUserId() ?? "guest"
         }
+    }
+
+    private func deleteLogEntry(_ log: LogEntry, movie: Movie) {
+        // Delete the log entry
+        context.delete(log)
+
+        // Also delete any associated score for this movie
+        if let score = scores.first(where: { $0.movieID == movie.id && $0.ownerId == userId }) {
+            context.delete(score)
+        }
+
+        // Also delete any UserItem marking this as seen
+        let allUserItems = (try? context.fetch(FetchDescriptor<UserItem>())) ?? []
+        if let userItem = allUserItems.first(where: { $0.movie?.id == movie.id && $0.ownerId == userId && $0.state == .seen }) {
+            context.delete(userItem)
+        }
+
+        try? context.save()
     }
 }

@@ -9,10 +9,15 @@ struct RapidFireView: View {
     @State private var cards: [TMDbItem] = []
     @State private var userId: String = "guest"
     @State private var isLoading = true
-    
+
     // To trigger Ranking
     @State private var movieToRank: Movie?
-    
+
+    // Feedback toast
+    @State private var lastRatedTitle: String = ""
+    @State private var lastRatedScore: Int = 0
+    @State private var showRatingToast = false
+
     // Avoid @Query crash
     @State private var seenTMDBIds: Set<Int> = []
     
@@ -76,6 +81,29 @@ struct RapidFireView: View {
             #endif
             .sheet(item: $movieToRank) { movie in
                 RankingSheet(newMovie: movie)
+            }
+            .onChange(of: movieToRank) { oldValue, newValue in
+                // When ranking sheet is dismissed, show feedback toast
+                if oldValue != nil && newValue == nil {
+                    // Find the score that was just created
+                    let allScores = (try? context.fetch(FetchDescriptor<Score>())) ?? []
+                    if let score = allScores.first(where: { $0.movieID == oldValue?.id && $0.ownerId == userId }) {
+                        lastRatedTitle = oldValue?.title ?? "Movie"
+                        lastRatedScore = score.display100
+                        showRatingToast = true
+                        // Auto-hide after 2 seconds
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+                            showRatingToast = false
+                        }
+                    }
+                }
+            }
+            .overlay(alignment: .top) {
+                if showRatingToast {
+                    RatingToast(title: lastRatedTitle, score: lastRatedScore)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                        .animation(.spring(), value: showRatingToast)
+                }
             }
             .task {
                 let actor = AuthService.shared.sessionActor()
@@ -177,5 +205,34 @@ struct RapidCard: View {
             else if offset.height < -50 { Image(systemName: "bookmark.fill").font(.system(size: 80)).foregroundStyle(.blue).opacity(0.8) }
         }
         .frame(width: 340, height: 520).cornerRadius(24).shadow(radius: 10, x: 0, y: 5).offset(x: offset.width, y: offset.height).rotationEffect(.degrees(Double(offset.width / 15))).gesture(DragGesture().onChanged { offset = $0.translation }.onEnded { gesture in let width = gesture.translation.width; let height = gesture.translation.height; if abs(width) > abs(height) { if width > 150 { onSwipe(.right) } else if width < -150 { onSwipe(.left) } else { withAnimation(.spring()) { offset = .zero } } } else { if height < -150 { onSwipe(.up) } else if height > 150 { onSwipe(.down) } else { withAnimation(.spring()) { offset = .zero } } } })
+    }
+}
+
+struct RatingToast: View {
+    let title: String
+    let score: Int
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "checkmark.circle.fill")
+                .font(.title2)
+                .foregroundStyle(.green)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Rated!")
+                    .font(.headline)
+                Text("\(title): \(score)/100")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer()
+        }
+        .padding()
+        .background(.ultraThinMaterial)
+        .cornerRadius(12)
+        .shadow(radius: 4)
+        .padding(.horizontal)
+        .padding(.top, 8)
     }
 }

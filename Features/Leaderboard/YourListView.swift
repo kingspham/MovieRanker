@@ -60,8 +60,16 @@ struct SavedView: View {
     
     @State private var userId: String = "guest"
     @State private var searchText: String = ""
-    @State private var sortOrder: WatchlistSortOption = .dateAdded
+    @AppStorage("watchlistSortOrder") private var sortOrderRaw: String = WatchlistSortOption.dateAdded.rawValue
     @State private var showRankAll = false
+
+    var sortOrder: WatchlistSortOption {
+        get { WatchlistSortOption(rawValue: sortOrderRaw) ?? .dateAdded }
+    }
+
+    func setSortOrder(_ newValue: WatchlistSortOption) {
+        sortOrderRaw = newValue.rawValue
+    }
     
     enum WatchlistSortOption: String, CaseIterable, Identifiable {
         case dateAdded = "Date Added"
@@ -127,7 +135,10 @@ struct SavedView: View {
                 HStack(spacing: 12) {
                     // Sort Menu
                     Menu {
-                        Picker("Sort By", selection: $sortOrder) {
+                        Picker("Sort By", selection: Binding(
+                            get: { sortOrder },
+                            set: { setSortOrder($0) }
+                        )) {
                             ForEach(WatchlistSortOption.allCases) { option in
                                 Label(option.rawValue, systemImage: "arrow.up.arrow.down").tag(option)
                             }

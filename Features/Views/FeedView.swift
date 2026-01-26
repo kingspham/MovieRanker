@@ -15,22 +15,27 @@ struct FeedView: View {
     
     @State private var userId: String = "guest"
     @State private var scope: FeedScope = .following
-    
+
     // ONBOARDING
     @AppStorage("hasSeenRapidFire") private var hasSeenRapidFire = false
     @State private var showOnboarding = false
     @State private var navigateToRapidFire = false
-    
+
     // Comments
     @State private var showComments = false
     @State private var selectedLog: CloudLog?
-    
+
     enum FeedScope: String, CaseIterable {
         case following = "Following"
         case global = "Community"
     }
-    
-    var isNewUser: Bool { localLogs.count < 5 }
+
+    // Filter logs by current user before checking count
+    var myLogs: [LogEntry] {
+        localLogs.filter { $0.ownerId == userId || ($0.ownerId == "guest" && userId == "guest") }
+    }
+
+    var isNewUser: Bool { myLogs.count < 5 }
 
     var body: some View {
         NavigationStack {
@@ -145,6 +150,8 @@ struct FeedView: View {
         if action == "like" {
             Task {
                 await feedService.toggleLike(log: item)
+                // Small delay to ensure database write completes before refetch
+                try? await Task.sleep(nanoseconds: 300_000_000)
                 await loadData(for: scope)
             }
         } else if action == "comment" {

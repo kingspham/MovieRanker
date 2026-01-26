@@ -17,8 +17,8 @@ struct LogSheet: View {
     @State private var userId: String = "guest"
     
     // Platform Lists
-    let visualPlatforms = ["Theater", "Netflix", "HBO/Max", "Hulu", "Prime Video", "Apple TV+", "Disney+", "Other"]
-    let audioPlatforms = ["Apple Podcasts", "Spotify", "YouTube", "Overcast", "Pocket Casts", "Other"]
+    let visualPlatforms = ["Theater", "Netflix", "HBO/Max", "Hulu", "Prime Video", "Apple TV+", "Disney+", "Other", "Not Sure"]
+    let audioPlatforms = ["Apple Podcasts", "Spotify", "YouTube", "Overcast", "Pocket Casts", "Other", "Not Sure"]
     
     var isBook: Bool { movie.mediaType == "book" }
     var isPodcast: Bool { movie.mediaType == "podcast" }
@@ -133,9 +133,19 @@ struct LogSheet: View {
             return unknownDate ? nil : watchedOn
         }()
         
+        // Map platform string to WatchLocation
+        let watchLocation: WatchLocation? = {
+            if isBook { return nil }
+            switch platform.lowercased() {
+            case "theater": return .theater
+            case "not sure": return .notSure
+            default: return .other
+            }
+        }()
+
         if let existingLog {
             existingLog.watchedOn = finalWatchedOn
-            existingLog.whereWatched = isBook ? nil : WatchLocation(rawValue: platform.lowercased()) ?? .other
+            existingLog.whereWatched = watchLocation
             existingLog.withWho = withWho.isEmpty ? nil : withWho
             existingLog.notes = notes.isEmpty ? nil : notes
         } else {
@@ -143,7 +153,7 @@ struct LogSheet: View {
                 createdAt: Date(),
                 rating: nil,
                 watchedOn: finalWatchedOn,
-                whereWatched: isBook ? nil : WatchLocation(rawValue: platform.lowercased()) ?? .other,
+                whereWatched: watchLocation,
                 withWho: withWho.isEmpty ? nil : withWho,
                 notes: notes.isEmpty ? nil : notes,
                 movie: movie,

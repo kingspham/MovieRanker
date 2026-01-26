@@ -8,6 +8,7 @@ struct AuthenticationView: View {
     @State private var isLoading = false
     @State private var errorMessage: String?
     @State private var showingAlert = false
+    @State private var showingSuccessAlert = false
     
     var body: some View {
         NavigationStack {
@@ -92,6 +93,13 @@ struct AuthenticationView: View {
             } message: {
                 Text(errorMessage ?? "Unknown error occurred")
             }
+            .alert("Account Created!", isPresented: $showingSuccessAlert) {
+                Button("OK") {
+                    isSigningUp = false
+                }
+            } message: {
+                Text("Check your email (\(email)) to verify your account, then sign in.")
+            }
         }
     }
     
@@ -104,6 +112,9 @@ struct AuthenticationView: View {
                 if isSigningUp {
                     // Create Account
                     try await AuthService.shared.signUp(email: email, password: password)
+                    // Show success message
+                    showingSuccessAlert = true
+                    password = ""
                 } else {
                     // Sign In
                     try await AuthService.shared.signIn(email: email, password: password)
