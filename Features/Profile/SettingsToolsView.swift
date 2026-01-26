@@ -7,22 +7,40 @@ import UniformTypeIdentifiers
 
 struct SettingsToolsView: View {
     @Environment(\.modelContext) private var context
+    @EnvironmentObject private var themeManager: ThemeManager
     @StateObject private var importService = ImportService.shared
     @StateObject private var badgeService = BadgeService.shared
-    
+
     @State private var showingFilePicker = false
     @State private var showingCSVPicker = false
     @State private var showAlert = false
     @State private var alertMessage = ""
     @State private var userId = "guest"
-    
+
     @Query private var allLogs: [LogEntry]
     @Query private var allUserItems: [UserItem]
     @Query private var allScores: [Score]
-    
+
     var body: some View {
         NavigationStack {
             List {
+                // APPEARANCE SECTION
+                Section {
+                    Picker("Theme", selection: Binding(
+                        get: { themeManager.currentTheme },
+                        set: { themeManager.currentTheme = $0 }
+                    )) {
+                        ForEach(AppTheme.allCases) { theme in
+                            Label(theme.rawValue, systemImage: theme.icon)
+                                .tag(theme)
+                        }
+                    }
+                } header: {
+                    Text("Appearance")
+                } footer: {
+                    Text("System follows your device's dark mode setting")
+                }
+
                 // QUICK FIXES SECTION
                 Section {
                     // Recalculate scores with new algorithm

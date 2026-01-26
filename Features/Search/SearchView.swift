@@ -5,18 +5,26 @@ import SwiftData
 struct SearchView: View {
     @Environment(\.modelContext) private var context
     @State private var userId: String = "guest"
-    
+
     @State private var query: String = ""
     @State private var results: [TMDbItem] = []
-    
+
     // Discovery Data
     @State private var trending: [TMDbItem] = []
     @State private var inTheaters: [TMDbItem] = []
     @State private var streaming: [TMDbItem] = []
-    
+
     @State private var isLoading = false
     @State private var hasSearched = false
     @State private var errorText: String? = nil
+    @State private var didYouMeanSuggestion: String? = nil
+    @State private var fuzzySuggestions: [String] = []
+
+    // Get known titles from local library for suggestions
+    @Query private var allMovies: [Movie]
+    var localTitles: [String] {
+        allMovies.map { $0.title }
+    }
 
     var body: some View {
         NavigationStack {
@@ -26,7 +34,54 @@ struct SearchView: View {
                     if isLoading {
                         HStack { Spacer(); ProgressView(); Spacer() }.listRowSeparator(.hidden)
                     } else if results.isEmpty {
-                        ContentUnavailableView.search(text: query)
+                        // Show fuzzy suggestions when no results
+                        VStack(spacing: 16) {
+                            ContentUnavailableView.search(text: query)
+
+                            if let suggestion = didYouMeanSuggestion {
+                                VStack(spacing: 8) {
+                                    Text("Did you mean:")
+                                        .font(.subheadline)
+                                        .foregroundStyle(.secondary)
+                                    Button {
+                                        query = suggestion
+                                    } label: {
+                                        Text(suggestion)
+                                            .font(.headline)
+                                            .foregroundStyle(.blue)
+                                    }
+                                }
+                                .padding()
+                                .background(Color.blue.opacity(0.1))
+                                .cornerRadius(12)
+                            }
+
+                            if !fuzzySuggestions.isEmpty {
+                                VStack(alignment: .leading, spacing: 8) {
+                                    Text("Try searching for:")
+                                        .font(.subheadline)
+                                        .foregroundStyle(.secondary)
+                                    ForEach(fuzzySuggestions, id: \.self) { suggestion in
+                                        Button {
+                                            query = suggestion
+                                        } label: {
+                                            HStack {
+                                                Image(systemName: "magnifyingglass")
+                                                    .font(.caption)
+                                                Text(suggestion)
+                                                    .font(.body)
+                                            }
+                                            .foregroundStyle(.blue)
+                                        }
+                                    }
+                                }
+                                .padding()
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(Color.gray.opacity(0.1))
+                                .cornerRadius(12)
+                            }
+                        }
+                        .listRowSeparator(.hidden)
                     } else {
                         ForEach(results, id: \.id) { item in
                             SearchResultRow(item: item)
@@ -88,16 +143,38 @@ struct SearchView: View {
 
     private func performUnifiedSearch() async {
         isLoading = true
+        didYouMeanSuggestion = nil
+        fuzzySuggestions = []
+
         do {
             async let tmdbTask = TMDbClient().searchMulti(query: query)
             async let booksTask = BooksAPI().searchBooks(query: query)
             async let podcastsTask = PodcastsAPI().search(query: query)
-            
+
             let (tmdbPage, bookResults, podcastResults) = try await (tmdbTask, booksTask, podcastsTask)
             let visualResults = tmdbPage.results.filter { $0.mediaType == "movie" || $0.mediaType == "tv" }
-            
+
             self.results = visualResults + bookResults + podcastResults
             self.hasSearched = true
+
+            // Generate fuzzy suggestions if no results
+            if results.isEmpty && query.count >= 2 {
+                // Combine local titles with popular titles for suggestions
+                let allKnownTitles = Array(Set(localTitles + FuzzySearch.popularTitles))
+
+                // Find "Did you mean?" suggestion
+                if let suggestion = FuzzySearch.didYouMean(query: query, knownTitles: allKnownTitles) {
+                    didYouMeanSuggestion = suggestion
+                }
+
+                // Find similar titles
+                fuzzySuggestions = FuzzySearch.findSuggestions(
+                    query: query,
+                    in: allKnownTitles,
+                    maxResults: 4,
+                    minSimilarity: 0.4
+                ).filter { $0 != didYouMeanSuggestion }
+            }
         } catch { print("Search Error: \(error)") }
         isLoading = false
     }

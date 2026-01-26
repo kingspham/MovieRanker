@@ -1,14 +1,18 @@
 // App.swift
-// REPLACE your entire App.swift with this (adds History tab)
+// Main app entry with theme support
 
 import SwiftUI
 import SwiftData
 
 @main
 struct AppEntry: App {
+    @StateObject private var themeManager = ThemeManager.shared
+
     var body: some Scene {
         WindowGroup {
             RootEntryView()
+                .preferredColorScheme(themeManager.colorScheme)
+                .environmentObject(themeManager)
         }
         .modelContainer(for: [
             Movie.self,
@@ -37,18 +41,18 @@ private struct RootEntryView: View {
             switch appState {
             case .loading:
                 ZStack {
-                    Color.black.ignoresSafeArea()
+                    Color.adaptiveBackground.ignoresSafeArea()
                     VStack(spacing: 24) {
                         Image(systemName: "film.stack.fill")
                             .font(.system(size: 80))
                             .foregroundStyle(.yellow)
                             .symbolEffect(.bounce, value: true)
-                        
+
                         Text("Loading Library...")
                             .font(.headline)
-                            .foregroundStyle(.white)
-                        
-                        ProgressView().tint(.white)
+                            .foregroundStyle(.adaptiveLabel)
+
+                        ProgressView()
                     }
                 }
             case .authenticated:

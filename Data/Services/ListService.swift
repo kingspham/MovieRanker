@@ -27,7 +27,8 @@ class ListService {
             user_id: user.id,
             name: list.name,
             movie_ids: list.movieIDs.map { $0.uuidString },
-            created_at: list.createdAt
+            created_at: list.createdAt,
+            is_public: list.isPublic
         )
         
         do {
@@ -49,4 +50,5 @@ struct CustomListDTO: Codable {
     let name: String
     let movie_ids: [String] // Array of UUID strings
     let created_at: Date
+    let is_public: Bool
 }
