@@ -55,9 +55,10 @@ final class NotificationService: ObservableObject {
         }
         
         let payload = Payload(user_id: userId, actor_id: myId, type: type, message: message, related_id: relatedId)
-        
-        Task {
-            _ = try? await AuthService.shared.client.from("notifications").insert(payload).execute()
+        do {
+            _ = try await AuthService.shared.client.from("notifications").insert(payload).execute()
+        } catch {
+            print("Notification insert failed: \(error)")
         }
     }
 }

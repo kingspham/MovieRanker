@@ -1,6 +1,9 @@
 import SwiftUI
+import SwiftData
 
 struct BadgeGalleryView: View {
+    @Environment(\.modelContext) private var context
+    @Query private var allLogs: [LogEntry]
     @StateObject private var badgeService = BadgeService.shared
     
     // Grid Layout
@@ -37,6 +40,17 @@ struct BadgeGalleryView: View {
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
+        .task {
+            guard badgeService.badges.isEmpty else { return }
+            let userId = AuthService.shared.currentUserId() ?? "guest"
+            let inputs = allLogs
+                .filter { $0.ownerId == userId }
+                .compactMap { log -> BadgeInput? in
+                    guard let movie = log.movie else { return nil }
+                    return BadgeInput(watchedOn: log.watchedOn, genreIDs: movie.genreIDs)
+                }
+            badgeService.calculateBadges(inputs: inputs)
+        }
     }
     
     func BadgeSection(title: String, filter: String) -> some View {

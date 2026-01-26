@@ -76,7 +76,16 @@ struct FeedView: View {
                 .refreshable { await loadData(for: scope) }
             }
             .navigationTitle("Activity")
-            .sheet(item: $selectedLog) { log in CommentsSheet(log: log) }
+            .sheet(item: $selectedLog, onDismiss: {
+                Task { await loadData(for: scope) }
+            }) { log in
+                CommentsSheet(
+                    log: log,
+                    onCommentPosted: {
+                        Task { await loadData(for: scope) }
+                    }
+                )
+            }
             .sheet(isPresented: $showOnboarding) { OnboardingView(launchRapidFire: $navigateToRapidFire) }
             .navigationDestination(isPresented: $navigateToRapidFire) { RapidFireView() }
             .toolbar {
@@ -213,6 +222,7 @@ struct FeedCard: View {
 
 struct CommentsSheet: View {
     let log: CloudLog
+    let onCommentPosted: (() -> Void)?
     @Environment(\.dismiss) private var dismiss
     @State private var comments: [Comment] = []
     @State private var newComment = ""
@@ -253,6 +263,7 @@ struct CommentsSheet: View {
             try? await FeedService.shared.postComment(log: log, text: newComment, isSpoiler: isSpoiler)
             newComment = ""
             await loadComments()
+            onCommentPosted?()
         }
     }
 }

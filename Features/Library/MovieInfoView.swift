@@ -150,28 +150,33 @@ struct MovieInfoView: View {
                 movie = Movie.findOrCreate(from: tmdb, type: mediaType, context: context, ownerId: userId)
             }
             
-            if let m = movie {
-                let engine = LinearPredictionEngine()
-                self.prediction = engine.predict(for: m, in: context, userId: userId)
-                if m.genreIDs.isEmpty { await selfHealGenres(for: m) }
-            }
+            guard let m = movie else { return }
+            let engine = LinearPredictionEngine()
+            self.prediction = engine.predict(for: m, in: context, userId: userId)
+            if m.genreIDs.isEmpty { Task { await selfHealGenres(for: m) } }
             
-            do {
-                let ratings = try await ExternalRatingsService.fetch(forTitle: tmdb.displayTitle, year: tmdb.year)
-                self.externalRatings = ratings
-            } catch {
-                print("⚠️ Could not fetch external ratings: \(error)")
-            }
-            await loadUserData()
-            
+            async let ratingsTask: ExternalRatings? = {
+                do {
+                    return try await ExternalRatingsService.fetch(forTitle: tmdb.displayTitle, year: tmdb.year)
+                } catch {
+                    print("⚠️ Could not fetch external ratings: \(error)")
+                    return nil
+                }
+            }()
+            async let userDataTask: Void = loadUserData()
             async let detailsTask: Void = loadRichDetails()
             async let creditsTask: Void = loadCredits()
             async let providersTask: Void = loadProviders()
+            
             if mediaType == "tv" {
                 async let seasonsTask: Void = loadSeasons()
-                _ = await (detailsTask, creditsTask, providersTask, seasonsTask)
+                _ = await (userDataTask, detailsTask, creditsTask, providersTask, seasonsTask)
             } else {
-                _ = await (detailsTask, creditsTask, providersTask)
+                _ = await (userDataTask, detailsTask, creditsTask, providersTask)
+            }
+            
+            if let ratings = await ratingsTask {
+                self.externalRatings = ratings
             }
         }
         .onChange(of: activeSheet) { _, newValue in
@@ -731,4 +736,3 @@ struct ExternalRatingBadge: View {
         }
     }
 }
-
