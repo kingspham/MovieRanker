@@ -102,8 +102,8 @@ struct PublicProfileView: View {
             self.myId = currentUserId
             
             // Get My Movies to compare
-            let myMovieDesc = FetchDescriptor<Movie>(predicate: #Predicate { $0.ownerId == currentUserId })
-            let myMovies = (try? context.fetch(myMovieDesc)) ?? []
+            let allMovies = (try? context.fetch(FetchDescriptor<Movie>())) ?? []
+            let myMovies = allMovies.filter { $0.ownerId == currentUserId }
             let myIDs = Set(myMovies.compactMap { $0.tmdbID })
             
             let theirIDs = Set(fetchedItems.map { $0.tmdbID })

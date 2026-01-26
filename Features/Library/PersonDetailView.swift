@@ -164,16 +164,9 @@ struct PersonDetailView: View {
         
         // 3. Check Seen Status
         await MainActor.run {
-            do {
-                let targetState = UserItem.State.seen
-                let descriptor = FetchDescriptor<UserItem>(predicate: #Predicate { $0.state == targetState })
-                
-                let items = try context.fetch(descriptor)
-                self.seenTMDBIds = Set(items.compactMap { $0.movie?.tmdbID })
-                
-            } catch {
-                print("Error checking seen status: \(error)")
-            }
+            let allItems = (try? context.fetch(FetchDescriptor<UserItem>())) ?? []
+            let seenItems = allItems.filter { $0.state == .seen }
+            self.seenTMDBIds = Set(seenItems.compactMap { $0.movie?.tmdbID })
             self.isLoading = false
         }
     }

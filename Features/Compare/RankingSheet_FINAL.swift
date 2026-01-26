@@ -61,20 +61,20 @@ struct RankingSheet: View {
     
     private func prepareBattle() async {
         let descriptor = FetchDescriptor<Score>(sortBy: [SortDescriptor(\.display100, order: .reverse)])
-        
+
         do {
             let allScores = try context.fetch(descriptor)
             let myScores = allScores.filter { $0.ownerId == userId || $0.ownerId == "guest" }
-            
+
+            // Fetch all movies once for efficiency
+            let allMovies = (try? context.fetch(FetchDescriptor<Movie>())) ?? []
+
             var sameTypeScores: [Score] = []
-            
+
             for score in myScores {
                 if score.movieID == newMovie.id { continue }
-                
-                let targetID = score.movieID
-                let mDesc = FetchDescriptor<Movie>(predicate: #Predicate { $0.id == targetID })
-                
-                if let m = try? context.fetch(mDesc).first {
+
+                if let m = allMovies.first(where: { $0.id == score.movieID }) {
                     if m.mediaType == newMovie.mediaType {
                         sameTypeScores.append(score)
                     }
@@ -251,11 +251,11 @@ struct RankingSheet: View {
         }
         
         let opponentScore = relevantScores[currentIndex]
-        
+
         let targetID = opponentScore.movieID
-        let mDesc = FetchDescriptor<Movie>(predicate: #Predicate { $0.id == targetID })
-        
-        if let opponent = try? context.fetch(mDesc).first {
+        let allMovies = (try? context.fetch(FetchDescriptor<Movie>())) ?? []
+
+        if let opponent = allMovies.first(where: { $0.id == targetID }) {
             withAnimation(.spring(response: 0.4, dampingFraction: 0.7)) {
                 battleOpponent = opponent
             }
@@ -336,25 +336,25 @@ struct RankingSheet: View {
     // MARK: - Update UserItem for Profile Stats
     private func markMovieAsSeen() {
         let targetID = newMovie.id
-        let itemDesc = FetchDescriptor<UserItem>(predicate: #Predicate { $0.movie?.id == targetID })
-        
-        if let existing = try? context.fetch(itemDesc).first {
+        let allItems = (try? context.fetch(FetchDescriptor<UserItem>())) ?? []
+
+        if let existing = allItems.first(where: { $0.movie?.id == targetID }) {
             existing.ownerId = userId
             existing.state = .seen
         } else {
             context.insert(UserItem(movie: newMovie, state: .seen, ownerId: userId))
         }
     }
-    
+
     // 🆕 FULL CLOUD SYNC - Uploads EVERYTHING!
     private func uploadToCloud(score: Score) {
         let targetID = newMovie.id
-        let logDesc = FetchDescriptor<LogEntry>(predicate: #Predicate { $0.movie?.id == targetID })
-        let log = (try? context.fetch(logDesc))?.last
-        
+        let allLogs = (try? context.fetch(FetchDescriptor<LogEntry>())) ?? []
+        let log = allLogs.filter { $0.movie?.id == targetID }.last
+
         Task {
             let date = log?.watchedOn ?? Date()
-            
+
             // 1. Upload log (activity feed)
             await FeedService.shared.uploadLog(
                 movie: newMovie,
@@ -364,14 +364,14 @@ struct RankingSheet: View {
                 date: date
             )
             print("✅ Uploaded log for \(newMovie.title)")
-            
+
             // 2. Upload score (the actual rating!)
             await ScoreService.shared.uploadScore(score, movie: newMovie)
             print("✅ Uploaded score for \(newMovie.title): \(score.display100)")
-            
+
             // 3. Upload UserItem (seen status)
-            let itemDesc = FetchDescriptor<UserItem>(predicate: #Predicate { $0.movie?.id == targetID })
-            if let item = try? context.fetch(itemDesc).first {
+            let allItems = (try? context.fetch(FetchDescriptor<UserItem>())) ?? []
+            if let item = allItems.first(where: { $0.movie?.id == targetID }) {
                 await UserItemService.shared.uploadUserItem(item, movie: newMovie)
                 print("✅ Uploaded seen status for \(newMovie.title)")
             }

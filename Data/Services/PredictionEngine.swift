@@ -18,13 +18,15 @@ protocol PredictionEngine {
 final class LinearPredictionEngine: PredictionEngine {
 
     func predict(for movie: Movie, in context: ModelContext, userId: String) -> PredictionExplanation {
-        // Fetch explicit scores (rankings)
-        let scoreDescriptor = FetchDescriptor<Score>(predicate: #Predicate { $0.ownerId == userId })
-        let userScores = (try? context.fetch(scoreDescriptor)) ?? []
+        // Fetch all scores and filter in memory (predicates have issues with captured variables)
+        let allScoresDescriptor = FetchDescriptor<Score>()
+        let allScores = (try? context.fetch(allScoresDescriptor)) ?? []
+        let userScores = allScores.filter { $0.ownerId == userId }
 
-        // Fetch implicit data (watch history from imports)
-        let logDescriptor = FetchDescriptor<LogEntry>(predicate: #Predicate { $0.ownerId == userId })
-        let userLogs = (try? context.fetch(logDescriptor)) ?? []
+        // Fetch all logs and filter in memory
+        let allLogsDescriptor = FetchDescriptor<LogEntry>()
+        let allLogs = (try? context.fetch(allLogsDescriptor)) ?? []
+        let userLogs = allLogs.filter { $0.ownerId == userId }
 
         // Check if we have any data at all
         let hasScores = !userScores.isEmpty
@@ -259,8 +261,9 @@ final class LinearPredictionEngine: PredictionEngine {
     }
     
     private func fetchMovie(id: UUID, context: ModelContext) -> Movie? {
-        let desc = FetchDescriptor<Movie>(predicate: #Predicate { $0.id == id })
-        return (try? context.fetch(desc))?.first
+        let desc = FetchDescriptor<Movie>()
+        let allMovies = (try? context.fetch(desc)) ?? []
+        return allMovies.first { $0.id == id }
     }
 
     /// Add movie attributes to the attribute map with the given rating and weight
