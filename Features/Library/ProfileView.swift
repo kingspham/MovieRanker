@@ -13,9 +13,11 @@ struct ProfileView: View {
     @State private var userId: String = "guest"
     @State private var showEditProfile = false
     @State private var profile: SocialProfile?
+    @StateObject private var badgeService = BadgeService.shared
     
     // UI State
     @State private var tasteFilter: String = "movie"
+    @State private var showAllTaste = false
     @State private var isSyncing = false
     @State private var debugLog: String = "Ready."
     
@@ -200,6 +202,7 @@ struct ProfileView: View {
             .task {
                 await loadSession()
                 await loadProfile()
+                recalculateBadgesIfNeeded()
             }
             .sheet(isPresented: $showEditProfile) { EditProfileSheet(initialUsername: profile?.username ?? "", initialDisplayName: profile?.fullName ?? "") { newU, newN in Task { try? await SocialService.shared.updateProfile(username: newU, fullName: newN); await loadProfile() } } }
         }
@@ -389,8 +392,26 @@ struct ProfileView: View {
                 Picker("Type", selection: $tasteFilter) { Image(systemName: "film").tag("movie"); Image(systemName: "tv").tag("tv") }.pickerStyle(.segmented).frame(width: 120)
             }.padding(.horizontal)
             let genreCounts = calculateTaste()
-            if genreCounts.isEmpty { Text("No data yet.").font(.subheadline).foregroundStyle(.secondary).padding(.horizontal) }
-            else { ForEach(genreCounts) { stat in HStack { Text(stat.name).font(.subheadline).fontWeight(.medium); Spacer(); Text("\(stat.count)").font(.caption).bold().foregroundStyle(.secondary) }.padding(.horizontal) } }
+            if genreCounts.isEmpty {
+                Text("No data yet.").font(.subheadline).foregroundStyle(.secondary).padding(.horizontal)
+            } else {
+                let visibleCounts = showAllTaste ? genreCounts : Array(genreCounts.prefix(10))
+                ForEach(visibleCounts) { stat in
+                    HStack {
+                        Text(stat.name).font(.subheadline).fontWeight(.medium)
+                        Spacer()
+                        Text("\(stat.count)").font(.caption).bold().foregroundStyle(.secondary)
+                    }
+                    .padding(.horizontal)
+                }
+                if genreCounts.count > 10 {
+                    Button(showAllTaste ? "Show Less" : "Show All") {
+                        withAnimation { showAllTaste.toggle() }
+                    }
+                    .font(.caption)
+                    .padding(.horizontal)
+                }
+            }
         }
     }
     var settingsSection: some View {
@@ -420,9 +441,24 @@ struct ProfileView: View {
     struct StatItem: Identifiable { let id = UUID(); let name: String; let count: Int }
     private func calculateTaste() -> [StatItem] {
         var counts: [String: Int] = [:]
-        let relevantMovies = myItems.compactMap { $0.movie }.filter { $0.mediaType == tasteFilter }
+        let sourceMovies: [Movie]
+        if myItems.isEmpty {
+            sourceMovies = myLogs.compactMap { $0.movie }
+        } else {
+            sourceMovies = myItems.compactMap { $0.movie }
+        }
+        let relevantMovies = sourceMovies.filter { $0.mediaType == tasteFilter }
         for m in relevantMovies { for g in m.genreIDs { counts[genreIDToString(g), default: 0] += 1 } }
-        return counts.sorted { $0.value > $1.value }.prefix(5).map { StatItem(name: $0.key, count: $0.value) }
+        return counts.sorted { $0.value > $1.value }.map { StatItem(name: $0.key, count: $0.value) }
+    }
+    
+    private func recalculateBadgesIfNeeded() {
+        guard badgeService.badges.isEmpty else { return }
+        let inputs = myLogs.compactMap { log -> BadgeInput? in
+            guard let movie = log.movie else { return nil }
+            return BadgeInput(watchedOn: log.watchedOn, genreIDs: movie.genreIDs)
+        }
+        badgeService.calculateBadges(inputs: inputs)
     }
     private func genreIDToString(_ id: Int) -> String { switch id { case 28: return "Action"; case 12: return "Adventure"; case 16: return "Animation"; case 35: return "Comedy"; case 80: return "Crime"; case 99: return "Documentary"; case 18: return "Drama"; case 10751: return "Family"; case 14: return "Fantasy"; case 36: return "History"; case 27: return "Horror"; case 10402: return "Music"; case 9648: return "Mystery"; case 10749: return "Romance"; case 878: return "Sci-Fi"; case 10770: return "TV Movie"; case 53: return "Thriller"; case 10752: return "War"; case 37: return "Western"; default: return "Genre" } }
 }

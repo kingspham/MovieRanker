@@ -6,6 +6,7 @@ struct LogSheet: View {
     @Environment(\.modelContext) private var context
     
     let movie: Movie
+    let existingLog: LogEntry?
     @Binding var showRanking: Bool
     
     @State private var watchedOn = Date()
@@ -49,7 +50,10 @@ struct LogSheet: View {
                 // DATE SECTION (Layout Fix)
                 Section("When") {
                     HStack {
-                        if unknownDate {
+                        if let lockedDate = existingLog?.watchedOn {
+                            Text("\(isBook ? "Read" : "Watched") \(lockedDate.formatted(date: .abbreviated, time: .omitted))")
+                                .foregroundStyle(.secondary)
+                        } else if unknownDate {
                             Text("Date Unknown")
                                 .foregroundStyle(.secondary)
                                 .italic()
@@ -64,17 +68,19 @@ struct LogSheet: View {
                         
                         Spacer()
                         
-                        Button {
-                            withAnimation { unknownDate.toggle() }
-                        } label: {
-                            Text(unknownDate ? "Set Date" : "Don't Remember")
-                                .font(.caption).bold()
-                                .padding(6)
-                                .background(unknownDate ? Color.blue.opacity(0.1) : Color.red.opacity(0.1))
-                                .foregroundColor(unknownDate ? .blue : .red)
-                                .cornerRadius(6)
+                        if existingLog?.watchedOn == nil {
+                            Button {
+                                withAnimation { unknownDate.toggle() }
+                            } label: {
+                                Text(unknownDate ? "Set Date" : "Don't Remember")
+                                    .font(.caption).bold()
+                                    .padding(6)
+                                    .background(unknownDate ? Color.blue.opacity(0.1) : Color.red.opacity(0.1))
+                                    .foregroundColor(unknownDate ? .blue : .red)
+                                    .cornerRadius(6)
+                            }
+                            .buttonStyle(.plain) // Prevents clicking the whole row
                         }
-                        .buttonStyle(.plain) // Prevents clicking the whole row
                     }
                     
                     if !isBook {
@@ -111,22 +117,40 @@ struct LogSheet: View {
             .task {
                 let actor = AuthService.shared.sessionActor()
                 if let s = try? await actor.session() { userId = s.userId }
+                if let existingDate = existingLog?.watchedOn {
+                    watchedOn = existingDate
+                    unknownDate = false
+                }
             }
         }
     }
     
     private func saveLog() {
-        let log = LogEntry(
-            createdAt: Date(),
-            rating: nil,
-            watchedOn: unknownDate ? nil : watchedOn,
-            whereWatched: isBook ? nil : WatchLocation(rawValue: platform.lowercased()) ?? .other,
-            withWho: withWho.isEmpty ? nil : withWho,
-            notes: notes.isEmpty ? nil : notes,
-            movie: movie,
-            ownerId: userId
-        )
-        context.insert(log)
+        let finalWatchedOn: Date? = {
+            if let existingDate = existingLog?.watchedOn {
+                return existingDate
+            }
+            return unknownDate ? nil : watchedOn
+        }()
+        
+        if let existingLog {
+            existingLog.watchedOn = finalWatchedOn
+            existingLog.whereWatched = isBook ? nil : WatchLocation(rawValue: platform.lowercased()) ?? .other
+            existingLog.withWho = withWho.isEmpty ? nil : withWho
+            existingLog.notes = notes.isEmpty ? nil : notes
+        } else {
+            let log = LogEntry(
+                createdAt: Date(),
+                rating: nil,
+                watchedOn: finalWatchedOn,
+                whereWatched: isBook ? nil : WatchLocation(rawValue: platform.lowercased()) ?? .other,
+                withWho: withWho.isEmpty ? nil : withWho,
+                notes: notes.isEmpty ? nil : notes,
+                movie: movie,
+                ownerId: userId
+            )
+            context.insert(log)
+        }
         
         let movieID = movie.id
         let predicate = #Predicate<UserItem> { $0.movie?.id == movieID }

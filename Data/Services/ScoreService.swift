@@ -81,6 +81,27 @@ class ScoreService: ObservableObject {
         }
     }
     
+    // Delete a score when a rating is removed
+    func deleteScore(movieID: UUID) async {
+        guard let client = AuthService.shared.client,
+              let user = try? await client.auth.session.user else {
+            print("❌ No auth for deleting score")
+            return
+        }
+        
+        do {
+            _ = try await client
+                .from("scores")
+                .delete()
+                .eq("user_id", value: user.id)
+                .eq("movie_id", value: movieID)
+                .execute()
+            print("✅ Deleted score for movie \(movieID)")
+        } catch {
+            print("❌ Error deleting score: \(error)")
+        }
+    }
+    
     // Fetch all user's scores from cloud (for initial sync or pulling to new device)
     func fetchAllScores() async -> [ScoreDTO] {
         guard let client = AuthService.shared.client,
