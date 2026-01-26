@@ -143,6 +143,8 @@ private struct RootEntryView: View {
 
 private struct AppMainView: View {
     @StateObject private var notifService = NotificationService.shared
+    @Environment(\.modelContext) private var context
+    @AppStorage("lastSyncTime") private var lastSyncTime: Double = 0
 
     var body: some View {
         TabView {
@@ -165,6 +167,17 @@ private struct AppMainView: View {
         }
         .task {
             await notifService.fetchNotifications()
+
+            // Auto-sync on launch if it's been more than 5 minutes since last sync
+            let fiveMinutes: Double = 300
+            let now = Date().timeIntervalSince1970
+            if now - lastSyncTime > fiveMinutes {
+                print("🔄 Auto-syncing scores from cloud...")
+                await ScoreService.shared.syncScores(context: context)
+                await UserItemService.shared.syncUserItems(context: context)
+                lastSyncTime = now
+                print("✅ Auto-sync complete")
+            }
         }
     }
 }

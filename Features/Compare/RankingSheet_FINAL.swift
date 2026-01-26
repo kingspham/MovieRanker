@@ -285,39 +285,52 @@ struct RankingSheet: View {
         dismiss()
     }
     
-    // IMPROVED ALGORITHM - Natural spread!
+    // IMPROVED ALGORITHM - Natural spread with sentiment-aware tiers!
     private func finalizeRank(at insertIndex: Int, tie: Bool) {
         triggerHaptic(heavy: true)
-        
+
         var calculatedScore: Int
-        
+
         if relevantScores.isEmpty {
+            // First item - default to "liked" tier
             calculatedScore = 85
         } else if tie && relevantScores.indices.contains(currentIndex) {
+            // Tie - use same score as opponent
             calculatedScore = relevantScores[currentIndex].display100
         } else if insertIndex == 0 {
+            // New best! Score should be higher than current best
             let currentBest = relevantScores.first?.display100 ?? 85
-            let gap = min(8, (99 - currentBest) / 2)
+            // Allow more room at the top
+            let gap = max(2, min(10, (99 - currentBest)))
             calculatedScore = min(currentBest + gap, 99)
         } else if insertIndex >= relevantScores.count {
+            // New worst! Score should be lower than current worst
             let currentWorst = relevantScores.last?.display100 ?? 50
-            let gap = min(8, (currentWorst - 1) / 2)
+            // Allow more room at the bottom
+            let gap = max(2, min(15, currentWorst - 1))
             calculatedScore = max(currentWorst - gap, 1)
         } else {
+            // Insert between two existing items
             let aboveScore = relevantScores[insertIndex - 1].display100
             let belowScore = relevantScores[insertIndex].display100
-            
+
             let gap = aboveScore - belowScore
-            
+
             if gap <= 1 {
+                // No room - need to shift scores
+                // For now, just use the lower score
                 calculatedScore = belowScore
             } else if gap == 2 {
                 calculatedScore = belowScore + 1
             } else {
+                // Place at midpoint
                 calculatedScore = (aboveScore + belowScore) / 2
             }
         }
-        
+
+        // Clamp to valid range
+        calculatedScore = max(1, min(99, calculatedScore))
+
         let newScore = Score(
             movieID: newMovie.id,
             display100: calculatedScore,
@@ -326,11 +339,39 @@ struct RankingSheet: View {
             ownerId: userId
         )
         context.insert(newScore)
-        
+
         markMovieAsSeen()
         try? context.save()
         uploadToCloud(score: newScore)
+
+        // Check if scores need redistribution (too compressed)
+        Task {
+            await checkAndRedistributeIfNeeded()
+        }
+
         dismiss()
+    }
+
+    // Check if scores have become too compressed and need redistribution
+    private func checkAndRedistributeIfNeeded() async {
+        // If many scores are within 2 points of each other, redistribute
+        guard relevantScores.count >= 5 else { return }
+
+        let scores = relevantScores.map { $0.display100 }.sorted(by: >)
+        var compressedCount = 0
+
+        for i in 0..<(scores.count - 1) {
+            if scores[i] - scores[i + 1] <= 2 {
+                compressedCount += 1
+            }
+        }
+
+        // If more than 60% of gaps are tiny, redistribute
+        let compressionRatio = Double(compressedCount) / Double(scores.count - 1)
+        if compressionRatio > 0.6 {
+            print("📊 Scores compressed (\(Int(compressionRatio * 100))%), redistributing...")
+            await RecalculateAllScores.recalculateAllUserScores(context: context)
+        }
     }
     
     // MARK: - Update UserItem for Profile Stats
