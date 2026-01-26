@@ -302,15 +302,298 @@ struct WatchlistRow: View {
 
 // MARK: - Custom Lists View
 struct CustomListsView: View {
+    @Environment(\.modelContext) private var context
+    @Query(sort: \CustomList.createdAt, order: .reverse) private var allLists: [CustomList]
+    @State private var userId: String = "guest"
+    @State private var showCreateSheet = false
+
+    var myLists: [CustomList] {
+        allLists.filter { $0.ownerId == userId || $0.ownerId == "guest" }
+    }
+
     var body: some View {
         List {
-            ContentUnavailableView(
-                "Custom Lists",
-                systemImage: "list.bullet",
-                description: Text("Create custom lists to organize your content")
-            )
+            if myLists.isEmpty {
+                ContentUnavailableView(
+                    "No Lists Yet",
+                    systemImage: "list.bullet",
+                    description: Text("Create custom lists to organize your content")
+                )
+            } else {
+                ForEach(myLists) { list in
+                    NavigationLink {
+                        CustomListDetailView(list: list)
+                    } label: {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(list.name)
+                                    .font(.headline)
+                                Text("\(list.movieIDs.count) items")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            if list.isPublic {
+                                Image(systemName: "globe")
+                                    .font(.caption)
+                                    .foregroundStyle(.blue)
+                            } else {
+                                Image(systemName: "lock.fill")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                    .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                        Button(role: .destructive) {
+                            context.delete(list)
+                            try? context.save()
+                        } label: {
+                            Label("Delete", systemImage: "trash")
+                        }
+                    }
+                }
+            }
         }
         .listStyle(.plain)
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    showCreateSheet = true
+                } label: {
+                    Image(systemName: "plus")
+                }
+            }
+        }
+        .sheet(isPresented: $showCreateSheet) {
+            CreateListSheet(userId: userId)
+        }
+        .task {
+            userId = AuthService.shared.currentUserId() ?? "guest"
+        }
+    }
+}
+
+// MARK: - Create List Sheet
+struct CreateListSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.modelContext) private var context
+    let userId: String
+
+    @State private var listName = ""
+    @State private var listDescription = ""
+    @State private var isPublic = false
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("List Info") {
+                    TextField("List Name", text: $listName)
+                    TextField("Description (optional)", text: $listDescription)
+                }
+
+                Section("Privacy") {
+                    Toggle(isOn: $isPublic) {
+                        HStack {
+                            Image(systemName: isPublic ? "globe" : "lock.fill")
+                                .foregroundStyle(isPublic ? .blue : .secondary)
+                            VStack(alignment: .leading) {
+                                Text(isPublic ? "Public" : "Private")
+                                    .font(.body)
+                                Text(isPublic ? "Anyone can see this list" : "Only you can see this list")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                }
+            }
+            .navigationTitle("New List")
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Create") {
+                        createList()
+                    }
+                    .disabled(listName.isEmpty)
+                }
+            }
+        }
+    }
+
+    private func createList() {
+        let newList = CustomList(
+            name: listName,
+            details: listDescription,
+            ownerId: userId,
+            isPublic: isPublic
+        )
+        context.insert(newList)
+        try? context.save()
+
+        Task {
+            await ListService.shared.uploadList(newList)
+        }
+
+        dismiss()
+    }
+}
+
+// MARK: - Custom List Detail View
+struct CustomListDetailView: View {
+    @Environment(\.modelContext) private var context
+    @Bindable var list: CustomList
+    @Query private var allMovies: [Movie]
+    @State private var showEditSheet = false
+
+    var listMovies: [Movie] {
+        allMovies.filter { list.movieIDs.contains($0.id) }
+    }
+
+    var body: some View {
+        List {
+            if listMovies.isEmpty {
+                ContentUnavailableView(
+                    "Empty List",
+                    systemImage: "film",
+                    description: Text("Add movies from their detail page")
+                )
+            } else {
+                ForEach(listMovies) { movie in
+                    NavigationLink {
+                        MovieInfoView(
+                            tmdb: TMDbItem(
+                                id: movie.tmdbID ?? 0,
+                                title: movie.mediaType == "tv" ? nil : movie.title,
+                                name: movie.mediaType == "tv" ? movie.title : nil,
+                                overview: nil,
+                                releaseDate: movie.year.map { "\($0)-01-01" },
+                                firstAirDate: movie.mediaType == "tv" ? movie.year.map { "\($0)-01-01" } : nil,
+                                posterPath: movie.posterPath,
+                                genreIds: movie.genreIDs,
+                                tags: movie.tags,
+                                mediaType: movie.mediaType,
+                                popularity: nil
+                            ),
+                            mediaType: movie.mediaType
+                        )
+                    } label: {
+                        HStack(spacing: 12) {
+                            PosterThumb(posterPath: movie.posterPath, title: movie.title, width: 50)
+                                .cornerRadius(6)
+                            VStack(alignment: .leading) {
+                                Text(movie.title)
+                                    .font(.headline)
+                                if let year = movie.year {
+                                    Text(String(year))
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+                    }
+                    .swipeActions(edge: .trailing) {
+                        Button(role: .destructive) {
+                            list.movieIDs.removeAll { $0 == movie.id }
+                            try? context.save()
+                            Task { await ListService.shared.uploadList(list) }
+                        } label: {
+                            Label("Remove", systemImage: "minus.circle")
+                        }
+                    }
+                }
+            }
+        }
+        .listStyle(.plain)
+        .navigationTitle(list.name)
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    showEditSheet = true
+                } label: {
+                    Image(systemName: "pencil")
+                }
+            }
+        }
+        .sheet(isPresented: $showEditSheet) {
+            EditListSheet(list: list)
+        }
+    }
+}
+
+// MARK: - Edit List Sheet
+struct EditListSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.modelContext) private var context
+    @Bindable var list: CustomList
+
+    @State private var listName: String = ""
+    @State private var listDescription: String = ""
+    @State private var isPublic: Bool = false
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("List Info") {
+                    TextField("List Name", text: $listName)
+                    TextField("Description", text: $listDescription)
+                }
+
+                Section("Privacy") {
+                    Toggle(isOn: $isPublic) {
+                        HStack {
+                            Image(systemName: isPublic ? "globe" : "lock.fill")
+                                .foregroundStyle(isPublic ? .blue : .secondary)
+                            VStack(alignment: .leading) {
+                                Text(isPublic ? "Public" : "Private")
+                                    .font(.body)
+                                Text(isPublic ? "Anyone can see this list" : "Only you can see this list")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Edit List")
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        saveChanges()
+                    }
+                    .disabled(listName.isEmpty)
+                }
+            }
+            .onAppear {
+                listName = list.name
+                listDescription = list.details
+                isPublic = list.isPublic
+            }
+        }
+    }
+
+    private func saveChanges() {
+        list.name = listName
+        list.details = listDescription
+        list.isPublic = isPublic
+        try? context.save()
+
+        Task {
+            await ListService.shared.uploadList(list)
+        }
+
+        dismiss()
     }
 }
 

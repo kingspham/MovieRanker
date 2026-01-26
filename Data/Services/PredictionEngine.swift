@@ -16,95 +16,103 @@ protocol PredictionEngine {
 }
 
 final class LinearPredictionEngine: PredictionEngine {
-    
+
     func predict(for movie: Movie, in context: ModelContext, userId: String) -> PredictionExplanation {
-        let descriptor = FetchDescriptor<Score>(predicate: #Predicate { $0.ownerId == userId })
-        let userScores = (try? context.fetch(descriptor)) ?? []
-        
-        if userScores.isEmpty {
+        // Fetch explicit scores (rankings)
+        let scoreDescriptor = FetchDescriptor<Score>(predicate: #Predicate { $0.ownerId == userId })
+        let userScores = (try? context.fetch(scoreDescriptor)) ?? []
+
+        // Fetch implicit data (watch history from imports)
+        let logDescriptor = FetchDescriptor<LogEntry>(predicate: #Predicate { $0.ownerId == userId })
+        let userLogs = (try? context.fetch(logDescriptor)) ?? []
+
+        // Check if we have any data at all
+        let hasScores = !userScores.isEmpty
+        let hasLogs = !userLogs.isEmpty
+
+        if !hasScores && !hasLogs {
             return PredictionExplanation(
                 score: 5.0,
                 confidence: 0.1,
-                reasons: ["Rank movies to start"],
-                debugInfo: "No scores yet"
+                reasons: ["Import or rank movies to start"],
+                debugInfo: "No data yet"
             )
         }
-        
-        // Filter to same media type (don't predict movie scores based on TV shows)
+
+        // Build comprehensive attribute map from BOTH sources
+        var attributeScores: [String: [(value: Double, weight: Double)]] = [:]
+
+        // 1. Process explicit scores (highest weight - user explicitly ranked these)
         let sameTypeScores = userScores.filter { score in
             guard let m = fetchMovie(id: score.movieID, context: context) else { return false }
             return m.mediaType == movie.mediaType
         }
-        
-        if sameTypeScores.isEmpty {
-            return PredictionExplanation(
-                score: 5.0,
-                confidence: 0.2,
-                reasons: ["Rank some \(movie.mediaType)s first"],
-                debugInfo: "No \(movie.mediaType) scores yet"
-            )
-        }
-        
-        // Build comprehensive attribute map
-        var attributeScores: [String: [Double]] = [:]
-        
+
         for score in sameTypeScores {
             guard let rankedMovie = fetchMovie(id: score.movieID, context: context) else { continue }
             let rating = Double(score.display100) / 10.0  // Convert 1-100 to 0.1-10.0
-            
-            // 1. Genre attributes (primary genres)
-            for genreID in rankedMovie.genreIDs {
-                let key = "genre:\(genreID)"
-                attributeScores[key, default: []].append(rating)
-            }
-            
-            // 2. Genre combinations (powerful for nuance)
-            if rankedMovie.genreIDs.count >= 2 {
-                let sorted = rankedMovie.genreIDs.sorted()
-                for i in 0..<sorted.count {
-                    for j in (i+1)..<sorted.count {
-                        let key = "combo:\(sorted[i])-\(sorted[j])"
-                        attributeScores[key, default: []].append(rating)
-                    }
-                }
-            }
-            
-            // 3. Talent attributes (directors, actors)
-            for tag in rankedMovie.tags {
-                if tag.starts(with: "dir:") || tag.starts(with: "actor:") {
-                    attributeScores[tag, default: []].append(rating)
-                }
-            }
-            
-            // 4. Decade attribute (era preferences)
-            if let year = rankedMovie.year {
-                let decade = (year / 10) * 10
-                let key = "decade:\(decade)"
-                attributeScores[key, default: []].append(rating)
-            }
-            
-            // 5. Year recency (do you like newer vs older stuff?)
-            if let year = rankedMovie.year {
-                let age = 2026 - year
-                if age < 2 { attributeScores["age:new", default: []].append(rating) }
-                else if age < 5 { attributeScores["age:recent", default: []].append(rating) }
-                else if age < 15 { attributeScores["age:modern", default: []].append(rating) }
-                else if age < 30 { attributeScores["age:classic", default: []].append(rating) }
-                else { attributeScores["age:vintage", default: []].append(rating) }
-            }
+            let weight = 1.0  // Full weight for explicit scores
+
+            addMovieAttributes(movie: rankedMovie, rating: rating, weight: weight, to: &attributeScores)
+        }
+
+        // 2. Process implicit data from logs (lower weight - user watched but didn't rank)
+        // Watching something implies some level of interest (assume ~6.5/10 baseline)
+        let sameTypeLogs = userLogs.filter { log in
+            guard let m = log.movie else { return false }
+            return m.mediaType == movie.mediaType
+        }
+
+        // Get movie IDs that already have scores (don't double-count)
+        let scoredMovieIDs = Set(sameTypeScores.compactMap { fetchMovie(id: $0.movieID, context: context)?.id })
+
+        for log in sameTypeLogs {
+            guard let watchedMovie = log.movie else { continue }
+            // Skip if we already have an explicit score for this movie
+            if scoredMovieIDs.contains(watchedMovie.id) { continue }
+
+            // Implicit rating: watching something = mild positive interest
+            // Use 6.5 as baseline (slightly above neutral)
+            let implicitRating = 6.5
+            let weight = 0.3  // Lower weight than explicit scores
+
+            addMovieAttributes(movie: watchedMovie, rating: implicitRating, weight: weight, to: &attributeScores)
+        }
+
+        // Check if we have enough data for predictions
+        let totalDataPoints = sameTypeScores.count + sameTypeLogs.filter { log in
+            guard let m = log.movie else { return false }
+            return !scoredMovieIDs.contains(m.id)
+        }.count
+
+        if totalDataPoints == 0 {
+            return PredictionExplanation(
+                score: 5.0,
+                confidence: 0.2,
+                reasons: ["Import or rank some \(movie.mediaType)s first"],
+                debugInfo: "No \(movie.mediaType) data yet"
+            )
         }
         
-        // Calculate averages for each attribute
+        // Calculate weighted averages for each attribute
         var attributeAverages: [String: Double] = [:]
         var attributeConfidence: [String: Double] = [:]
-        
-        for (key, scores) in attributeScores {
-            let avg = scores.reduce(0, +) / Double(scores.count)
+
+        for (key, entries) in attributeScores {
+            let totalWeight = entries.reduce(0.0) { $0 + $1.weight }
+            let weightedSum = entries.reduce(0.0) { $0 + ($1.value * $1.weight) }
+            let avg = totalWeight > 0 ? weightedSum / totalWeight : 5.0
             attributeAverages[key] = avg
-            // Confidence based on sample size (more data = more confident)
-            let sampleSize = Double(scores.count)
-            attributeConfidence[key] = min(sampleSize / 10.0, 1.0)  // Max confidence at 10+ samples
+
+            // Confidence based on sample size AND weight quality
+            let effectiveSampleSize = entries.reduce(0.0) { $0 + $1.weight }
+            attributeConfidence[key] = min(effectiveSampleSize / 5.0, 1.0)  // Max confidence at 5+ weighted samples
         }
+
+        // Debug: Log taste profile summary
+        let explicitCount = sameTypeScores.count
+        let implicitCount = totalDataPoints - explicitCount
+        let debugPrefix = "Data: \(explicitCount) ranked, \(implicitCount) watched"
         
         // Now predict for the target movie
         var signals: [(value: Double, weight: Double, reason: String)] = []
@@ -183,7 +191,7 @@ final class LinearPredictionEngine: PredictionEngine {
             // Take top 2-3 reasons
             reasons = sortedSignals.prefix(3).map { $0.reason }
             
-            debugInfo = "Signals: \(signals.count), Top: \(sortedSignals.prefix(3).map { "\($0.reason)(\(String(format: "%.1f", $0.value)))" }.joined(separator: ", "))"
+            debugInfo = "\(debugPrefix) | Signals: \(signals.count), Top: \(sortedSignals.prefix(3).map { "\($0.reason)(\(String(format: "%.1f", $0.value)))" }.joined(separator: ", "))"
         } else {
             // No genre/talent matches - use smarter fallback
             
@@ -214,13 +222,19 @@ final class LinearPredictionEngine: PredictionEngine {
                 let weightedSum = fallbackSignals.reduce(0) { $0 + ($1.value * $1.weight) }
                 finalScore = weightedSum / totalWeight
                 reasons = ["Based on year/decade preference"]
-                debugInfo = "Fallback: Year-based prediction"
+                debugInfo = "\(debugPrefix) | Fallback: Year-based prediction"
             } else {
-                // Last resort - use global average
-                let globalAvg = sameTypeScores.map { Double($0.display100) / 10.0 }.reduce(0, +) / Double(sameTypeScores.count)
+                // Last resort - use global average from all data
+                var allRatings: [Double] = []
+                allRatings.append(contentsOf: sameTypeScores.map { Double($0.display100) / 10.0 })
+                // Add implicit ratings for unwatched items
+                if allRatings.isEmpty {
+                    allRatings.append(6.5)  // Default baseline if no explicit scores
+                }
+                let globalAvg = allRatings.reduce(0, +) / Double(allRatings.count)
                 finalScore = globalAvg
-                reasons = ["Based on your overall \(movie.mediaType) taste"]
-                debugInfo = "Fallback: Global average = \(String(format: "%.1f", globalAvg))"
+                reasons = ["Based on your \(movie.mediaType) watching habits"]
+                debugInfo = "\(debugPrefix) | Fallback: Global average = \(String(format: "%.1f", globalAvg))"
             }
         }
         
@@ -247,6 +261,55 @@ final class LinearPredictionEngine: PredictionEngine {
     private func fetchMovie(id: UUID, context: ModelContext) -> Movie? {
         let desc = FetchDescriptor<Movie>(predicate: #Predicate { $0.id == id })
         return (try? context.fetch(desc))?.first
+    }
+
+    /// Add movie attributes to the attribute map with the given rating and weight
+    private func addMovieAttributes(
+        movie: Movie,
+        rating: Double,
+        weight: Double,
+        to attributeScores: inout [String: [(value: Double, weight: Double)]]
+    ) {
+        // 1. Genre attributes (primary genres)
+        for genreID in movie.genreIDs {
+            let key = "genre:\(genreID)"
+            attributeScores[key, default: []].append((value: rating, weight: weight))
+        }
+
+        // 2. Genre combinations (powerful for nuance)
+        if movie.genreIDs.count >= 2 {
+            let sorted = movie.genreIDs.sorted()
+            for i in 0..<sorted.count {
+                for j in (i+1)..<sorted.count {
+                    let key = "combo:\(sorted[i])-\(sorted[j])"
+                    attributeScores[key, default: []].append((value: rating, weight: weight))
+                }
+            }
+        }
+
+        // 3. Talent attributes (directors, actors)
+        for tag in movie.tags {
+            if tag.starts(with: "dir:") || tag.starts(with: "actor:") {
+                attributeScores[tag, default: []].append((value: rating, weight: weight))
+            }
+        }
+
+        // 4. Decade attribute (era preferences)
+        if let year = movie.year {
+            let decade = (year / 10) * 10
+            let key = "decade:\(decade)"
+            attributeScores[key, default: []].append((value: rating, weight: weight))
+        }
+
+        // 5. Year recency (do you like newer vs older stuff?)
+        if let year = movie.year {
+            let age = 2026 - year
+            if age < 2 { attributeScores["age:new", default: []].append((value: rating, weight: weight)) }
+            else if age < 5 { attributeScores["age:recent", default: []].append((value: rating, weight: weight)) }
+            else if age < 15 { attributeScores["age:modern", default: []].append((value: rating, weight: weight)) }
+            else if age < 30 { attributeScores["age:classic", default: []].append((value: rating, weight: weight)) }
+            else { attributeScores["age:vintage", default: []].append((value: rating, weight: weight)) }
+        }
     }
     
     private func genreIDToString(_ id: Int) -> String {
