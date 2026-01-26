@@ -7,7 +7,7 @@ import UniformTypeIdentifiers
 
 struct SettingsToolsView: View {
     @Environment(\.modelContext) private var context
-    @EnvironmentObject private var themeManager: ThemeManager
+    @StateObject private var themeManager = ThemeManager.shared
     @StateObject private var importService = ImportService.shared
     @StateObject private var badgeService = BadgeService.shared
 
