@@ -46,34 +46,41 @@ class FeedService: ObservableObject {
     func toggleLike(log: CloudLog) async {
         guard let client = AuthService.shared.client,
               let user = try? await client.auth.session.user else { return }
-        
-        do {
-            let existing: [CloudLog.LikeStub] = try await client
-                .from("likes")
-                .select("user_id")
-                .eq("log_id", value: log.id)
-                .eq("user_id", value: user.id)
-                .execute()
-                .value
-            
-            if existing.isEmpty {
-                struct LikePayload: Encodable { let user_id: UUID; let log_id: UUID }
-                let payload = LikePayload(user_id: user.id, log_id: log.id)
-                try await client.from("likes").insert(payload).execute()
-                
-                await NotificationService.shared.sendNotification(
-                    to: log.userId,
-                    type: "like",
-                    message: "liked your review of \(log.title)",
-                    relatedId: log.id
-                )
+
+        let isCurrentlyLiked = log.isLiked(by: user.id.uuidString)
+
+        // Optimistic UI update - toggle local state immediately
+        if let index = feedItems.firstIndex(where: { $0.id == log.id }) {
+            var updatedLikes = feedItems[index].likes ?? []
+            if isCurrentlyLiked {
+                updatedLikes.removeAll { $0.user_id == user.id }
             } else {
+                updatedLikes.append(CloudLog.LikeStub(user_id: user.id))
+            }
+            // Create updated log with new likes (we'll rebuild via refetch if needed)
+        }
+
+        do {
+            if isCurrentlyLiked {
+                // Unlike
                 _ = try await client
                     .from("likes")
                     .delete()
                     .eq("log_id", value: log.id)
                     .eq("user_id", value: user.id)
                     .execute()
+            } else {
+                // Like
+                struct LikePayload: Encodable { let user_id: UUID; let log_id: UUID }
+                let payload = LikePayload(user_id: user.id, log_id: log.id)
+                try await client.from("likes").insert(payload).execute()
+
+                await NotificationService.shared.sendNotification(
+                    to: log.userId,
+                    type: "like",
+                    message: "liked your review of \(log.title)",
+                    relatedId: log.id
+                )
             }
         } catch {
             print("Like Error: \(error)")

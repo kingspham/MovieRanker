@@ -26,12 +26,15 @@ struct PublicProfileView: View {
                     
                     Text(profile.displayName).font(.title2).bold()
                     Text("@\(profile.username ?? "user")").foregroundStyle(.secondary)
-                    
-                    Button(isFollowing ? "Following" : "Follow") {
-                        Task { await toggleFollow() }
+
+                    // Don't show follow button for yourself
+                    if profile.id.uuidString != myId {
+                        Button(isFollowing ? "Following" : "Follow") {
+                            Task { await toggleFollow() }
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(isFollowing ? .gray : .blue)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .tint(isFollowing ? .gray : .blue)
                 }
                 .padding(.top)
                 
