@@ -106,10 +106,10 @@ struct RapidFireView: View {
     private func saveMovie(item: TMDbItem, state: UserItem.State, triggerRanking: Bool) {
         let tmdbID = item.id
         var targetMovie: Movie
-        
-        // 1. Find or Create Movie
-        let predicate = #Predicate<Movie> { $0.tmdbID == tmdbID }
-        if let existing = try? context.fetch(FetchDescriptor(predicate: predicate)).first {
+
+        // 1. Find or Create Movie (filter in memory - predicates have issues)
+        let allMovies = (try? context.fetch(FetchDescriptor<Movie>())) ?? []
+        if let existing = allMovies.first(where: { $0.tmdbID == tmdbID }) {
             targetMovie = existing
         } else {
             let new = Movie(
@@ -137,10 +137,9 @@ struct RapidFireView: View {
     }
     
     func loadData() async {
-        let descriptor = FetchDescriptor<Movie>(predicate: #Predicate { $0.ownerId == userId })
-        if let movies = try? context.fetch(descriptor) {
-            self.seenTMDBIds = Set(movies.compactMap { $0.tmdbID })
-        }
+        let allMovies = (try? context.fetch(FetchDescriptor<Movie>())) ?? []
+        let userMovies = allMovies.filter { $0.ownerId == userId }
+        self.seenTMDBIds = Set(userMovies.compactMap { $0.tmdbID })
         await fetchMoreCards()
     }
     

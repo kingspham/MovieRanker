@@ -72,9 +72,9 @@ struct PodcastInfoView: View {
     }
     
     private func ensurePodcast() async {
-        let targetID: Int? = item.id
-        let predicate = #Predicate<Movie> { $0.tmdbID == targetID }
-        if let existing = try? context.fetch(FetchDescriptor(predicate: predicate)).first { self.movie = existing }
+        let targetID = item.id
+        let allMovies = (try? context.fetch(FetchDescriptor<Movie>())) ?? []
+        if let existing = allMovies.first(where: { $0.tmdbID == targetID }) { self.movie = existing }
         else {
             let newPod = Movie(title: item.displayTitle, year: item.year, tmdbID: item.id, posterPath: item.posterPath, tags: item.tags ?? [], mediaType: "podcast", ownerId: userId)
             if let host = item.overview?.replacingOccurrences(of: "Hosted by ", with: "") { newPod.authors = [host] }
@@ -83,5 +83,5 @@ struct PodcastInfoView: View {
     }
     // (Keep handleReRank / savePodcast)
     private func handleReRank() { guard let m = movie else { return }; if let score = allScores.first(where: { $0.movieID == m.id && $0.ownerId == userId }) { context.delete(score); try? context.save() }; showRankingSheet = true }
-    private func savePodcast(as state: UserItem.State) { guard let m = movie else { return }; let targetID: Int? = m.tmdbID; let itemPred = #Predicate<UserItem> { $0.movie?.tmdbID == targetID }; if let existingItem = try? context.fetch(FetchDescriptor(predicate: itemPred)).first { existingItem.state = state } else { context.insert(UserItem(movie: m, state: state, ownerId: userId)) }; try? context.save(); showSuccess = true; DispatchQueue.main.asyncAfter(deadline: .now() + 2) { showSuccess = false } }
+    private func savePodcast(as state: UserItem.State) { guard let m = movie else { return }; let targetID = m.tmdbID; let allItems = (try? context.fetch(FetchDescriptor<UserItem>())) ?? []; if let existingItem = allItems.first(where: { $0.movie?.tmdbID == targetID }) { existingItem.state = state } else { context.insert(UserItem(movie: m, state: state, ownerId: userId)) }; try? context.save(); showSuccess = true; DispatchQueue.main.asyncAfter(deadline: .now() + 2) { showSuccess = false } }
 }

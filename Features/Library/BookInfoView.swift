@@ -164,10 +164,10 @@ struct BookInfoView: View {
     }
     
     private func ensureBook() async {
-        let targetID: Int? = item.id
-        let predicate = #Predicate<Movie> { $0.tmdbID == targetID }
-        
-        if let existing = try? context.fetch(FetchDescriptor(predicate: predicate)).first {
+        let targetID = item.id
+        let allMovies = (try? context.fetch(FetchDescriptor<Movie>())) ?? []
+
+        if let existing = allMovies.first(where: { $0.tmdbID == targetID }) {
             self.movie = existing
         } else {
             let newBook = Movie(
@@ -198,10 +198,10 @@ struct BookInfoView: View {
     
     private func saveBook(as state: UserItem.State) {
         guard let m = movie else { return }
-        let targetID: Int? = m.tmdbID
-        let itemPred = #Predicate<UserItem> { $0.movie?.tmdbID == targetID }
-        
-        if let existingItem = try? context.fetch(FetchDescriptor(predicate: itemPred)).first {
+        let targetID = m.tmdbID
+        let allItems = (try? context.fetch(FetchDescriptor<UserItem>())) ?? []
+
+        if let existingItem = allItems.first(where: { $0.movie?.tmdbID == targetID }) {
             existingItem.state = state
         } else {
             context.insert(UserItem(movie: m, state: state, ownerId: userId))

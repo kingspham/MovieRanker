@@ -6,13 +6,11 @@ extension Movie {
     /// This prevents duplicate entries and thread crashes.
     @MainActor
     static func findOrCreate(from item: TMDbItem, type: String, context: ModelContext, ownerId: String) -> Movie {
-        // 1. Try to find existing by TMDb ID (for visual media) or Hash (for others)
+        // 1. Try to find existing by TMDb ID (filter in memory - predicates have issues with $0)
         let targetID = item.id
-        let predicate = #Predicate<Movie> { $0.tmdbID == targetID }
-        var descriptor = FetchDescriptor(predicate: predicate)
-        descriptor.fetchLimit = 1
-        
-        if let existing = try? context.fetch(descriptor).first {
+        let allMovies = (try? context.fetch(FetchDescriptor<Movie>())) ?? []
+
+        if let existing = allMovies.first(where: { $0.tmdbID == targetID }) {
             return existing
         }
         

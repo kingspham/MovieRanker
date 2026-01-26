@@ -153,8 +153,8 @@ struct LogSheet: View {
         }
         
         let movieID = movie.id
-        let predicate = #Predicate<UserItem> { $0.movie?.id == movieID }
-        if let item = try? context.fetch(FetchDescriptor(predicate: predicate)).first {
+        let allItems = (try? context.fetch(FetchDescriptor<UserItem>())) ?? []
+        if let item = allItems.first(where: { $0.movie?.id == movieID }) {
             item.state = .seen
         } else {
             context.insert(UserItem(movie: movie, state: .seen, ownerId: userId))
