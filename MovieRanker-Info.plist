@@ -2,42 +2,13 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <!-- Core bundle metadata -->
-    <key>CFBundleName</key>
-    <string>MovieRanker</string>
-    <key>CFBundleDisplayName</key>
-    <string>MovieRanker</string>
-    <key>CFBundleIdentifier</key>
-    <string>com.example.MovieRanker</string>
-    <key>CFBundleVersion</key>
-    <string>1</string>
-    <key>CFBundleShortVersionString</key>
-    <string>1.0</string>
-
-    <!-- iOS specific -->
-    <key>LSRequiresIPhoneOS</key>
-    <true/>
-
-    <!-- Deployment target keys are handled by build settings; not set here. -->
-
-    <!-- Launch screen/storyboard keys are optional; uncomment and adjust if your project uses them. -->
-    <!--
-    <key>UILaunchStoryboardName</key>
-    <string>LaunchScreen</string>
-    -->
-
-    <!-- UIKit main storyboard (usually not needed for SwiftUI lifecycle) -->
-    <!--
-    <key>UIMainStoryboardFile</key>
-    <string>Main</string>
-    -->
-
-    <!-- Add privacy usage descriptions only for APIs you actually use. Examples: -->
-    <!--
-    <key>NSCameraUsageDescription</key>
-    <string>This app requires camera access to capture photos.</string>
-    <key>NSPhotoLibraryUsageDescription</key>
-    <string>This app requires photo library access to select images.</string>
-    -->
+	<key>SUPABASE_ANON_KEY</key>
+	<string>eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp0c3V6aGtqb3RtZXZwY2N0d2x5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjEwNzQ2NjUsImV4cCI6MjA3NjY1MDY2NX0.azByedp7ECPeOyWlrpT55xZsNcXafYEGV4J30vo7UHU</string>
+	<key>SUPABASE_URL</key>
+	<string>https://ztsuzhkjotmevpcctwly.supabase.co</string>
+	<key>OMDB_API_KEY</key>
+	<string>0385116fdfd5e0cc40a55906c2a762df</string>
+    <key>TMDB_API_KEY</key>
+    <string>0385116fdfd5e0cc40a55906c2a762df</string>
 </dict>
 </plist>

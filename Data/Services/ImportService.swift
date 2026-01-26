@@ -1,3 +1,7 @@
+// ImportService.swift
+// REPLACE your ImportService.swift with this version
+// Adds badge calculation after import
+
 import Foundation
 import SwiftData
 import Combine
@@ -15,173 +19,129 @@ final class ImportService: ObservableObject {
     @Published private(set) var lastImportIDs: [UUID] = []
     @Published var syncAfterImport: Bool = false
 
-    // If API key is missing, fail fast in dev instead of silently ignoring
     private lazy var api: TMDbClient = { try! TMDbClient() }()
 
     func runImport(data: Data, context: ModelContext) async {
         guard !isRunning else { return }
         isRunning = true
         progress = 0
-        message = "Parsing…"
+        message = "Parsing..."
         errors.removeAll()
         lastImportIDs.removeAll()
-        defer { isRunning = false; message = "Done" }
+        defer { isRunning = false }
 
-        // 1) Data → String
         let csvString = String(decoding: data, as: UTF8.self)
-
-        // 2) Parse CSV
-        let table = CSV.parse(csvString)
-        guard let summary = ImportDetector.detect(table: table) else {
-            errors.append("Could not detect format.")
-            return
+        let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("import.csv")
+        try? csvString.write(to: tempURL, atomically: true, encoding: .utf8)
+        
+        var rows: [CSVManager.ImportedRow] = []
+        do { rows = try CSVManager.parseCSV(url: tempURL) }
+        catch { errors.append("CSV Error: \(error.localizedDescription)"); isRunning = false; return }
+        
+        // Deduplicate Rows (Netflix often has 100 entries for "The Office")
+        let uniqueRows = Array(Set(rows.map { $0.title })).map { title in
+            rows.first(where: { $0.title == title })!
         }
-        let rows = ImportDetector.mapRows(table: table, format: summary.detected)
+        
+        let owner: String = (try? await AuthService.shared.sessionActor().session().userId) ?? "guest"
+        
+        var importedCount = 0
+        var duplicateCount = 0
 
-        // Consistent owner id for all inserts
-        let owner = SessionManager.shared.userId ?? "guest"
+        // 2. Process Rows
+        for (i, row) in uniqueRows.enumerated() {
+            message = "Processing \(i + 1)/\(uniqueRows.count): \(row.title)"
+            progress = Double(i + 1) / Double(max(uniqueRows.count, 1))
 
-        // Local cache by normalized title#year
-        var cache = Dictionary(uniqueKeysWithValues:
-            self.fetchAll(Movie.self, context: context).map { (Self.key($0.title, $0.year), $0) }
-        )
-
-        // 3) Rows
-        for (i, row) in rows.enumerated() {
-            message = "Importing \(i + 1)/\(rows.count)…"
-            progress = Double(i + 1) / Double(max(rows.count, 1))
-
-            let title = row.title.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
-            guard !title.isEmpty else { continue }
-
-            var target = cache[Self.key(title, row.year)]
-
-            // If still unfound, query TMDb
-            if target == nil {
-                do {
-                    let page = try await api.searchMovies(query: title)
-                    let match = page.results.first { tm in
-                        guard let y = row.year else { return true }
-                        return tm.year == y
-                    } ?? page.results.first
-
-                    if let tm = match {
-                        let new = Movie(
-                            title: tm.title,
-                            year: tm.year,
-                            tmdbID: tm.id,
-                            posterPath: tm.posterPath,
-                            genreIDs: tm.genreIDs,
-                            ownerId: owner
-                        )
-                        context.insert(new)
-                        target = new
-                        cache[Self.key(new.title, new.year)] = new
-                        lastImportIDs.append(new.id)
+            do {
+                let page = try await api.searchMulti(query: row.title)
+                
+                let match = page.results.first { tm in
+                    guard let y = row.year, let tmY = tm.year else { return true }
+                    return abs(y - tmY) <= 1
+                } ?? page.results.first
+                
+                if let tm = match {
+                    // CHECK IF ALREADY EXISTS IN LIBRARY
+                    let tmdbID = tm.id
+                    let predicate = #Predicate<Movie> { $0.tmdbID == tmdbID }
+                    
+                    if (try? context.fetch(FetchDescriptor(predicate: predicate)).first) != nil {
+                        // MOVIE EXISTS -> SKIP (Prevent Duplicate)
+                        duplicateCount += 1
+                        continue
                     }
-                } catch {
-                    errors.append("TMDb lookup failed for \"\(title)\": \(error.localizedDescription)")
-                }
-            }
-
-            // Create minimal movie when not found anywhere
-            if target == nil {
-                let new = Movie(title: title, year: row.year, ownerId: owner)
-                context.insert(new)
-                target = new
-                cache[Self.key(new.title, new.year)] = new
-                lastImportIDs.append(new.id)
-            }
-
-            guard let movie = target else { continue }
-
-            // De-duplicated log insert
-            if let date = row.watchedOn {
-                let existingLogs: [LogEntry] = self.fetchAll(context: context)
-                let dayKeyValue = Self.dayKeyString(from: date)
-                let dupe = existingLogs.first { le in
-                    guard let leDate = le.watchedOn else { return false }
-                    let leDayKey = Self.dayKeyString(from: leDate)
-                    return le.movie?.id == movie.id &&
-                           leDayKey == dayKeyValue &&
-                           (le.notes == row.notes)
-                }
-                if dupe == nil {
+                    
+                    // NEW MOVIE -> CREATE
+                    importedCount += 1
+                    let genres = tm.genreIds ?? []
+                    let new = Movie(
+                        title: tm.displayTitle,
+                        year: tm.year,
+                        tmdbID: tm.id,
+                        posterPath: tm.posterPath,
+                        genreIDs: genres,
+                        tags: tm.tags ?? [],
+                        mediaType: tm.mediaType ?? "movie",
+                        ownerId: owner
+                    )
+                    context.insert(new)
+                    
+                    // Add to Seen
+                    context.insert(UserItem(movie: new, state: .seen, ownerId: owner))
+                    
+                    // Add LogEntry with date if available
                     let log = LogEntry(
-                        createdAt: Date(),
+                        createdAt: row.date ?? Date(),
                         rating: nil,
-                        watchedOn: row.watchedOn,
+                        watchedOn: row.date,
                         whereWatched: nil,
                         withWho: nil,
-                        notes: row.notes,
-                        labels: row.labels,
-                        movie: movie,
-                        show: nil,
+                        notes: nil,
+                        movie: new,
                         ownerId: owner
                     )
                     context.insert(log)
+                    
+                    // Add Score if available
+                    if let rating = row.rating {
+                        let score = Score(movieID: new.id, display100: rating, latent: 0, variance: 0, ownerId: owner)
+                        context.insert(score)
+                    }
+                    
+                    lastImportIDs.append(new.id)
+                    try? await Task.sleep(nanoseconds: 250_000_000) // Rate limit
                 }
-            }
-
-            // Ensure Score exists
-            let scores: [Score] = self.fetchAll(context: context)
-            if scores.first(where: { $0.movieID == movie.id }) == nil {
-                let newScore = Score(
-                    movieID: movie.id,
-                    display100: 50,
-                    latent: 0.0,
-                    variance: 1.0,
-                    ownerId: owner
-                )
-                context.insert(newScore)
-            }
-
-            // Ensure Seen marker
-            let items: [UserItem] = self.fetchAll(context: context)
-            if items.first(where: { $0.movie?.id == movie.id && $0.state == .seen }) == nil {
-                let newItem = UserItem(
-                    movie: movie,
-                    show: nil,
-                    state: .seen,
-                    ownerId: owner
-                )
-                context.insert(newItem)
-            }
-
-            do { try context.save() } catch {
-                errors.append("Save failed for \"\(title)\": \(error.localizedDescription)")
+            } catch {
+                errors.append("Error: \(row.title)")
             }
         }
-    }
-
-    func undoLastImport(context: ModelContext) {
-        guard !lastImportIDs.isEmpty else { return }
-        let movies: [Movie] = fetchAll(context: context)
-        for id in lastImportIDs {
-            if let m = movies.first(where: { $0.id == id }) {
-                context.delete(m)
-            }
-        }
-        SD.save(context)
-        lastImportIDs.removeAll()
-    }
-
-    private static func key(_ title: String, _ year: Int?) -> String {
-        let t = title.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
-        if let y = year { return "\(t)#\(y)" }
-        return t
+        
+        try? context.save()
+        
+        // NEW: Calculate badges after import
+        message = "Calculating badges..."
+        calculateBadges(context: context)
+        
+        // Final Status Message
+        message = "Done! Imported \(importedCount) new items. Skipped \(duplicateCount) duplicates. Badges updated!"
+        
+        // Keep message visible for a moment
+        try? await Task.sleep(nanoseconds: 3_000_000_000)
     }
     
-    private static func dayKeyString(from date: Date) -> String {
-        let f = DateFormatter()
-        f.calendar = Calendar(identifier: .iso8601)
-        f.locale = Locale(identifier: "en_US_POSIX")
-        f.dateFormat = "yyyy-MM-dd"
-        return f.string(from: date)
-    }
-
-    private func fetchAll<T: PersistentModel>(_ type: T.Type = T.self, context: ModelContext) -> [T] {
-        (try? context.fetch(FetchDescriptor<T>())) ?? []
+    // NEW: Badge calculation function
+    private func calculateBadges(context: ModelContext) {
+        let descriptor = FetchDescriptor<LogEntry>()
+        
+        guard let allLogs = try? context.fetch(descriptor) else { return }
+        
+        let inputs = allLogs.compactMap { log -> BadgeInput? in
+            guard let movie = log.movie else { return nil }
+            return BadgeInput(watchedOn: log.watchedOn, genreIDs: movie.genreIDs)
+        }
+        
+        BadgeService.shared.calculateBadges(inputs: inputs)
+        print("✅ Badges recalculated after import - \(inputs.count) logs processed")
     }
 }
-

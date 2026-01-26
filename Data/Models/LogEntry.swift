@@ -1,3 +1,6 @@
+// LogEntry.swift
+// UPDATED - Added reading tracker fields for books
+
 import Foundation
 import SwiftData
 
@@ -12,8 +15,11 @@ final class LogEntry {
     var notes: String?
     var labels: [String]?
     var movie: Movie?
-    var show: Show?
     var ownerId: String
+    
+    // Reading Tracker (for books)
+    var startedReading: Date?
+    var finishedReading: Date?
 
     init(
         id: UUID = UUID(),
@@ -25,8 +31,9 @@ final class LogEntry {
         notes: String? = nil,
         labels: [String]? = nil,
         movie: Movie? = nil,
-        show: Show? = nil,
-        ownerId: String
+        ownerId: String,
+        startedReading: Date? = nil,
+        finishedReading: Date? = nil
     ) {
         self.id = id
         self.createdAt = createdAt
@@ -37,7 +44,14 @@ final class LogEntry {
         self.notes = notes
         self.labels = labels
         self.movie = movie
-        self.show = show
         self.ownerId = ownerId
+        self.startedReading = startedReading
+        self.finishedReading = finishedReading
+    }
+    
+    // Computed property for reading duration
+    var readingDuration: Int? {
+        guard let start = startedReading, let finish = finishedReading else { return nil }
+        return Calendar.current.dateComponents([.day], from: start, to: finish).day
     }
 }

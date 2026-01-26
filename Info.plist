@@ -37,6 +37,17 @@
 	<key>TMDB_IMAGE_BASE</key>
 	<string>https://image.tmdb.org/t/p/w185</string>
 	<key>OMDB_API_KEY</key>
-	<string>http://www.omdbapi.com/?i=tt3896198&amp;apikey=c7955ee3</string>
+	<string>c7955ee3</string>
+    <key>LSApplicationQueriesSchemes</key>
+        <array>
+            <string>nflx</string>
+            <string>spotify</string>
+            <string>disneyplus</string>
+            <string>hulu</string>
+            <string>max</string>
+            <string>primevideo</string>
+            <string>youtube</string>
+            <string>videos</string>
+        </array>
 </dict>
 </plist>

@@ -4,8 +4,6 @@ import SwiftData
 import UIKit
 #endif
 
-/// Editor for creating OR editing a LogEntry tied to a Movie.
-/// If `existing` is nil we create a new entry on Save.
 struct LogEntryEditorView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var context
@@ -15,12 +13,10 @@ struct LogEntryEditorView: View {
     var onSaved: (() -> Void)? = nil
     var onDeleted: (() -> Void)? = nil
 
-    // Smart defaults
     @AppStorage("last_where_watched") private var lastWhereRaw: String = WatchLocation.other.rawValue
     @AppStorage("last_with_who")      private var lastWithWhoStored: String = ""
     @AppStorage("last_labels")        private var lastLabelsCSV: String = ""
 
-    // Form state
     @State private var watchedOn: Date = Date()
     @State private var whereWatched: WatchLocation = .other
     @State private var withWho: String = ""
@@ -45,16 +41,27 @@ struct LogEntryEditorView: View {
                 }
 
                 Section("Notes") {
-                    TextEditor(text: $notes).frame(minHeight: 120)
+                    TextEditor(text: $notes)
+                        .frame(minHeight: 120)
                 }
 
                 Section("Labels") {
-                    LabelsWrap(all: labelOptions, selected: $selectedLabels)
-                        .padding(.vertical, 4)
+                    LogLabelsGrid(
+                        options: labelOptions,
+                        selection: selectedLabels,
+                        onToggle: { label in
+                            if selectedLabels.contains(label) {
+                                selectedLabels.remove(label)
+                            } else {
+                                selectedLabels.insert(label)
+                            }
+                        }
+                    )
+                    .padding(.vertical, 4)
                 }
 
                 Section {
-                    Button(existing == nil ? "Save" : "Save Changes") { save() }
+                    Button(existing == nil ? "Save" : "Save Changes") { Task { await save() } }
                         .buttonStyle(.borderedProminent)
 
                     if existing != nil {
@@ -85,7 +92,13 @@ struct LogEntryEditorView: View {
         }
     }
 
-    private func save() {
+    @MainActor private func save() async {
+        var owner = "guest"
+        let sessionActor = AuthService.shared.sessionActor()
+        if let session = try? await sessionActor.session() {
+            owner = session.userId
+        }
+
         if let e = existing {
             e.watchedOn = watchedOn
             e.whereWatched = whereWatched
@@ -93,7 +106,7 @@ struct LogEntryEditorView: View {
             e.notes = notes.isEmpty ? nil : notes
             e.labels = Array(selectedLabels)
         } else {
-            let owner = SessionManager.shared.currentOwnerId
+            // FIX: Removed 'show' parameter to match updated model
             let entry = LogEntry(
                 id: UUID(),
                 createdAt: Date(),
@@ -109,7 +122,6 @@ struct LogEntryEditorView: View {
             context.insert(entry)
         }
 
-        // Persist defaults
         lastWhereRaw = whereWatched.rawValue
         lastWithWhoStored = withWho
         lastLabelsCSV = Array(selectedLabels).joined(separator: ",")
@@ -136,3 +148,31 @@ struct LogEntryEditorView: View {
     }
 }
 
+private struct LogLabelsGrid: View {
+    let options: [String]
+    let selection: Set<String>
+    let onToggle: (String) -> Void
+
+    private let columns: [GridItem] = [GridItem(.adaptive(minimum: 90), spacing: 8)]
+
+    var body: some View {
+        LazyVGrid(columns: columns, spacing: 8) {
+            ForEach(options, id: \.self) { (label: String) in
+                let isOn = selection.contains(label)
+                Button {
+                    onToggle(label)
+                } label: {
+                    Text(label)
+                        .font(.caption).bold()
+                        .padding(.vertical, 6)
+                        .padding(.horizontal, 10)
+                        .background(
+                            isOn ? AnyShapeStyle(Color.accentColor.opacity(0.2)) : AnyShapeStyle(.ultraThinMaterial),
+                            in: Capsule()
+                        )
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+}

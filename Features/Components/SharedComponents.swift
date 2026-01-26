@@ -1,3 +1,4 @@
+// SharedComponents.swift
 import SwiftUI
 import SafariServices
 
@@ -13,19 +14,19 @@ struct RatingBadge: View {
                 .font(.subheadline)
                 .fontWeight(.bold)
                 .foregroundStyle(color)
-                .lineLimit(1)             // Prevent wrapping
-                .minimumScaleFactor(0.8)  // Shrink text slightly if name is huge
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
             
             Spacer()
             
             Text(score)
-                .font(.system(size: 18, weight: .black, design: .rounded)) // Fixed size
-                .monospacedDigit()        // Aligns numbers perfectly
+                .font(.system(size: 18, weight: .black, design: .rounded))
+                .monospacedDigit()
                 .foregroundStyle(color)
         }
         .padding(.horizontal, 12)
-        .padding(.vertical, 10)           // Slightly taller for touch targets
-        .frame(maxWidth: .infinity)       // <--- THE MAGIC FIX (Fills width)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity)
         .background(color.opacity(0.1), in: RoundedRectangle(cornerRadius: 10))
     }
 }
@@ -45,7 +46,8 @@ struct SuccessToast: View {
     }
 }
 
-// 3. The In-App Browser
+// 3. The In-App Browser (Cross-Platform Safe)
+#if os(iOS)
 struct SafariView: UIViewControllerRepresentable {
     let url: URL
     
@@ -57,6 +59,16 @@ struct SafariView: UIViewControllerRepresentable {
     
     func updateUIViewController(_ uiViewController: SFSafariViewController, context: Context) {}
 }
+#else
+// Mac Fallback (just a link button if embedded, but usually we open external URL)
+struct SafariView: View {
+    let url: URL
+    var body: some View {
+        Link("Open in Browser", destination: url)
+            .padding()
+    }
+}
+#endif
 
 // 4. The Stat Card
 struct StatCard: View {

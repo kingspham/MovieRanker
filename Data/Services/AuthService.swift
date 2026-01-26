@@ -65,4 +65,9 @@ final class AuthService {
         try await client.auth.signOut()
         await sessionManager.clear()
     }
+    
+    /// Returns the current authenticated user's ID as a string, or nil if not signed in
+    func currentUserId() -> String? {
+        return client.auth.currentUser?.id.uuidString
+    }
 }

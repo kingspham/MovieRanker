@@ -3,30 +3,27 @@ import SwiftData
 
 @Model
 final class UserItem {
-    enum State: String, Codable {
-        case watchlist
-        case seen
-    }
-    
     @Attribute(.unique) var id: UUID
-    var movie: Movie?
-    var show: Show?
-    var state: State
-    var ownerId: String?
+    var ownerId: String
     var createdAt: Date
+    var updatedAt: Date
+    var state: State
+    
+    // Matches the inverse in Movie.swift
+    var movie: Movie?
 
-    init(
-        id: UUID = UUID(),
-        movie: Movie? = nil,
-        show: Show? = nil,
-        state: State,
-        ownerId: String?
-    ) {
-        self.id = id
+    init(movie: Movie?, state: State, ownerId: String) {
+        self.id = UUID()
         self.movie = movie
-        self.show = show
         self.state = state
         self.ownerId = ownerId
         self.createdAt = Date()
+        self.updatedAt = Date()
+    }
+
+    enum State: String, Codable, CaseIterable {
+        case seen
+        case watchlist
+        case favorite
     }
 }

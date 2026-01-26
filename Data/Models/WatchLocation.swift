@@ -1,3 +1,9 @@
-enum WatchLocation: String, CaseIterable, Codable {
-    case theater, streaming, tv, airplane, other
+// WatchLocation.swift
+import Foundation
+
+enum WatchLocation: String, CaseIterable, Codable, Sendable {
+    case theater
+    case home
+    case airplane
+    case other
 }

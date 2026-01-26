@@ -1,0 +1,5 @@
+# Ignore sensitive and generated files
+Secrets.xcconfig
+DerivedData/
+*.xcuserdatad
+*.xcworkspace

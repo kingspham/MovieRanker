@@ -7,9 +7,7 @@ struct AppSession: Sendable {
     let userId: String
 }
 
-/// Your app's stable facade around whatever auth backend you use.
-/// Replacing Supabase later won't ripple through the app.
-actor SessionManager {
+actor AppSessionManager {
     private var current: AppSession?
 
     func set(accessToken: String, userId: String) {
