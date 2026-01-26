@@ -57,11 +57,15 @@ struct YourListView: View {
 struct SavedView: View {
     @Environment(\.modelContext) private var context
     @Query(sort: \UserItem.createdAt, order: .reverse) private var allUserItems: [UserItem]
-    
+
     @State private var userId: String = "guest"
     @State private var searchText: String = ""
     @AppStorage("watchlistSortOrder") private var sortOrderRaw: String = WatchlistSortOption.dateAdded.rawValue
     @State private var showRankAll = false
+
+    // Cached predictions to avoid recomputing on every render
+    @State private var predictionCache: [UUID: Double] = [:]
+    @State private var isPredictionsLoaded = false
 
     var sortOrder: WatchlistSortOption {
         get { WatchlistSortOption(rawValue: sortOrderRaw) ?? .dateAdded }
@@ -70,7 +74,7 @@ struct SavedView: View {
     func setSortOrder(_ newValue: WatchlistSortOption) {
         sortOrderRaw = newValue.rawValue
     }
-    
+
     enum WatchlistSortOption: String, CaseIterable, Identifiable {
         case dateAdded = "Date Added"
         case predicted = "Predicted Score"
@@ -79,10 +83,10 @@ struct SavedView: View {
         case metacritic = "Metacritic"
         case imdb = "IMDb"
         case rottenTomatoes = "Rotten Tomatoes"
-        
+
         var id: String { rawValue }
     }
-    
+
     var watchlistItems: [UserItem] {
         allUserItems.filter {
             $0.state == .watchlist &&
@@ -90,17 +94,16 @@ struct SavedView: View {
             (searchText.isEmpty || $0.movie?.title.localizedCaseInsensitiveContains(searchText) == true)
         }
     }
-    
+
     var sortedItems: [UserItem] {
         switch sortOrder {
         case .dateAdded:
             return watchlistItems.sorted { $0.createdAt > $1.createdAt }
         case .predicted:
-            let engine = LinearPredictionEngine()
+            // Use cached predictions for sorting
             return watchlistItems.sorted { (item1, item2) in
-                guard let movie1 = item1.movie, let movie2 = item2.movie else { return false }
-                let pred1 = engine.predict(for: movie1, in: context, userId: userId).score
-                let pred2 = engine.predict(for: movie2, in: context, userId: userId).score
+                let pred1 = predictionCache[item1.id] ?? 50.0
+                let pred2 = predictionCache[item2.id] ?? 50.0
                 return pred1 > pred2
             }
         case .title:
@@ -219,6 +222,30 @@ struct SavedView: View {
         }
         .task {
             userId = AuthService.shared.currentUserId() ?? "guest"
+            // Pre-compute predictions in background to avoid blocking UI
+            await loadPredictions()
+        }
+        .onChange(of: sortOrder) { _, newValue in
+            if newValue == .predicted && !isPredictionsLoaded {
+                Task { await loadPredictions() }
+            }
+        }
+    }
+
+    private func loadPredictions() async {
+        guard !isPredictionsLoaded else { return }
+        let engine = LinearPredictionEngine()
+        var newCache: [UUID: Double] = [:]
+
+        for item in watchlistItems {
+            guard let movie = item.movie else { continue }
+            let pred = engine.predict(for: movie, in: context, userId: userId)
+            newCache[item.id] = pred.score * 10 // Convert to 0-100 scale
+        }
+
+        await MainActor.run {
+            predictionCache = newCache
+            isPredictionsLoaded = true
         }
     }
     

@@ -19,8 +19,9 @@ final class NotificationService: ObservableObject {
     
     func fetchNotifications() async {
         guard let myId = client.auth.currentUser?.id else { return }
-        
+
         do {
+            // Try with relationship first
             let response: [AppNotification] = try await client
                 .from("notifications")
                 .select("*, profiles!notifications_actor_id_fkey(*)")
@@ -29,11 +30,27 @@ final class NotificationService: ObservableObject {
                 .limit(30)
                 .execute()
                 .value
-            
+
             self.notifications = response
             self.unreadCount = response.filter { !$0.read }.count
         } catch {
-            print("Fetch error: \(error)")
+            // Fallback: fetch without the profile join if relationship doesn't exist
+            print("Fetch with join failed, trying without: \(error)")
+            do {
+                let response: [AppNotification] = try await client
+                    .from("notifications")
+                    .select("*")
+                    .eq("user_id", value: myId)
+                    .order("created_at", ascending: false)
+                    .limit(30)
+                    .execute()
+                    .value
+
+                self.notifications = response
+                self.unreadCount = response.filter { !$0.read }.count
+            } catch {
+                print("Notification fetch failed: \(error)")
+            }
         }
     }
     
