@@ -234,43 +234,111 @@ struct CommentsSheet: View {
     @State private var comments: [Comment] = []
     @State private var newComment = ""
     @State private var isSpoiler = false
-    
+    @State private var isPosting = false
+
     var body: some View {
         NavigationStack {
             VStack {
-                List(comments) { c in
-                    HStack(alignment: .top) {
-                        Text(String((c.profile?.displayName ?? "U").prefix(1))).bold().frame(width: 32, height: 32).background(Color.gray.opacity(0.2), in: Circle())
-                        VStack(alignment: .leading) {
-                            Text(c.profile?.displayName ?? "User").font(.caption).bold().foregroundStyle(.secondary)
-                            Text(c.body).font(.body)
+                if comments.isEmpty {
+                    ContentUnavailableView("No Comments", systemImage: "bubble.left", description: Text("Be the first to comment!"))
+                        .frame(maxHeight: .infinity)
+                } else {
+                    List(comments) { c in
+                        HStack(alignment: .top, spacing: 10) {
+                            Text(String((c.profile?.displayName ?? "U").prefix(1)))
+                                .bold()
+                                .frame(width: 36, height: 36)
+                                .background(Color.gray.opacity(0.2), in: Circle())
+                            VStack(alignment: .leading, spacing: 4) {
+                                HStack {
+                                    Text(c.profile?.displayName ?? "User")
+                                        .font(.subheadline)
+                                        .bold()
+                                    Text(c.createdAt.formatted(.relative(presentation: .named)))
+                                        .font(.caption2)
+                                        .foregroundStyle(.tertiary)
+                                }
+                                Text(c.body)
+                                    .font(.body)
+                            }
+                        }
+                        .padding(.vertical, 4)
+                    }
+                    .listStyle(.plain)
+                }
+
+                Divider()
+
+                HStack(spacing: 12) {
+                    TextField("Add comment...", text: $newComment)
+                        .textFieldStyle(.roundedBorder)
+                        .disabled(isPosting)
+                    Button {
+                        postComment()
+                    } label: {
+                        if isPosting {
+                            ProgressView()
+                                .frame(width: 50)
+                        } else {
+                            Text("Post")
+                                .fontWeight(.semibold)
                         }
                     }
+                    .disabled(newComment.trimmingCharacters(in: .whitespaces).isEmpty || isPosting)
                 }
-                HStack {
-                    TextField("Add comment...", text: $newComment).textFieldStyle(.roundedBorder)
-                    Button("Post") { postComment() }
-                }.padding()
+                .padding()
             }
-            .navigationTitle("Comments")
+            .navigationTitle("Comments (\(comments.count))")
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
             .task { await loadComments() }
         }
     }
-    
+
     private func loadComments() async {
         guard let client = AuthService.shared.client else { return }
         do {
-            let response: [Comment] = try await client.from("comments").select("*, profiles(*)").eq("log_id", value: log.id).order("created_at", ascending: true).execute().value
+            let response: [Comment] = try await client
+                .from("comments")
+                .select("*, profiles(*)")
+                .eq("log_id", value: log.id)
+                .order("created_at", ascending: true)
+                .execute()
+                .value
             self.comments = response
-        } catch { print(error) }
+            print("✅ Loaded \(response.count) comments for log \(log.id)")
+        } catch {
+            print("❌ Failed to load comments: \(error)")
+        }
     }
-    
+
     private func postComment() {
+        guard !newComment.trimmingCharacters(in: .whitespaces).isEmpty else { return }
+        isPosting = true
+
         Task {
-            try? await FeedService.shared.postComment(log: log, text: newComment, isSpoiler: isSpoiler)
-            newComment = ""
-            await loadComments()
-            onCommentPosted?()
+            do {
+                try await FeedService.shared.postComment(log: log, text: newComment, isSpoiler: isSpoiler)
+                newComment = ""
+
+                // Wait a moment for database write to complete
+                try? await Task.sleep(nanoseconds: 500_000_000)
+
+                // Reload comments to show the new one
+                await loadComments()
+
+                // Notify parent to refresh feed
+                onCommentPosted?()
+            } catch {
+                print("❌ Failed to post comment: \(error)")
+            }
+            isPosting = false
         }
     }
 }

@@ -18,28 +18,23 @@ final class NotificationService: ObservableObject {
     }
     
     func fetchNotifications() async {
-        guard let myId = client.auth.currentUser?.id else { return }
+        guard let myId = client.auth.currentUser?.id else {
+            print("⚠️ No user ID for notifications")
+            return
+        }
 
-        do {
-            // Try with relationship first
-            let response: [AppNotification] = try await client
-                .from("notifications")
-                .select("*, profiles!notifications_actor_id_fkey(*)")
-                .eq("user_id", value: myId)
-                .order("created_at", ascending: false)
-                .limit(30)
-                .execute()
-                .value
+        // Try multiple query patterns for robustness
+        let queries: [(String, String)] = [
+            ("with foreign key join", "*, profiles!notifications_actor_id_fkey(*)"),
+            ("with simple join", "*, profiles(*)"),
+            ("without join", "id, user_id, actor_id, type, message, related_id, read, created_at")
+        ]
 
-            self.notifications = response
-            self.unreadCount = response.filter { !$0.read }.count
-        } catch {
-            // Fallback: fetch without the profile join if relationship doesn't exist
-            print("Fetch with join failed, trying without: \(error)")
+        for (name, selectQuery) in queries {
             do {
                 let response: [AppNotification] = try await client
                     .from("notifications")
-                    .select("*")
+                    .select(selectQuery)
                     .eq("user_id", value: myId)
                     .order("created_at", ascending: false)
                     .limit(30)
@@ -48,10 +43,15 @@ final class NotificationService: ObservableObject {
 
                 self.notifications = response
                 self.unreadCount = response.filter { !$0.read }.count
+                print("✅ Fetched \(response.count) notifications \(name) (\(self.unreadCount) unread)")
+                return // Success, exit loop
             } catch {
-                print("Notification fetch failed: \(error)")
+                print("⚠️ Notification fetch \(name) failed: \(error.localizedDescription)")
+                continue // Try next query pattern
             }
         }
+
+        print("❌ All notification fetch patterns failed")
     }
     
     func markAllRead() async {

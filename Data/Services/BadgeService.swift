@@ -46,20 +46,34 @@ class BadgeService: ObservableObject {
     @Published var recentBadges: [AppBadge] = []
     @Published var latestUnlock: AppBadge? = nil
     
+    // Track previously unlocked badge IDs to detect new unlocks
+    private var previouslyUnlockedIDs: Set<String> = []
+
     func calculateBadges(inputs: [BadgeInput]) {
         // Run on background priority
         Task.detached(priority: .background) {
             // FIX: We call a nonisolated function here
             let newBadges = self.performCalculation(inputs: inputs)
-            
+
             await MainActor.run {
-                let oldIDs = Set(self.badges.filter { $0.isUnlocked }.map { $0.id })
+                let oldIDs = self.previouslyUnlockedIDs
+                let newUnlockedIDs = Set(newBadges.filter { $0.isUnlocked }.map { $0.id })
+
                 self.badges = newBadges
                 self.recentBadges = Array(newBadges.sorted { $0.isUnlocked && !$1.isUnlocked }.prefix(8))
-                
-                if let newUnlock = newBadges.first(where: { $0.isUnlocked && !oldIDs.contains($0.id) }) {
-                    if !oldIDs.isEmpty { self.latestUnlock = newUnlock }
+
+                // Find newly unlocked badges (ones that weren't unlocked before)
+                let newlyUnlocked = newBadges.filter { $0.isUnlocked && !oldIDs.contains($0.id) }
+                if let firstNew = newlyUnlocked.first {
+                    // Only show popup if this isn't the initial load (when previouslyUnlockedIDs was empty)
+                    // OR if user just earned their first badge
+                    if !oldIDs.isEmpty || (oldIDs.isEmpty && self.previouslyUnlockedIDs.isEmpty && newUnlockedIDs.count > 0) {
+                        self.latestUnlock = firstNew
+                    }
                 }
+
+                // Update tracking set
+                self.previouslyUnlockedIDs = newUnlockedIDs
             }
         }
     }

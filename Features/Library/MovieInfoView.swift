@@ -145,38 +145,49 @@ struct MovieInfoView: View {
         }
         .task {
             userId = AuthService.shared.currentUserId() ?? "guest"
-            
+
             if movie == nil {
                 movie = Movie.findOrCreate(from: tmdb, type: mediaType, context: context, ownerId: userId)
             }
-            
+
             guard let m = movie else { return }
-            let engine = LinearPredictionEngine()
-            self.prediction = engine.predict(for: m, in: context, userId: userId)
-            if m.genreIDs.isEmpty { Task { await selfHealGenres(for: m) } }
-            
-            async let ratingsTask: ExternalRatings? = {
-                do {
-                    return try await ExternalRatingsService.fetch(forTitle: tmdb.displayTitle, year: tmdb.year)
-                } catch {
-                    print("⚠️ Could not fetch external ratings: \(error)")
-                    return nil
-                }
-            }()
-            async let userDataTask: Void = loadUserData()
-            async let detailsTask: Void = loadRichDetails()
-            async let creditsTask: Void = loadCredits()
-            async let providersTask: Void = loadProviders()
-            
-            if mediaType == "tv" {
-                async let seasonsTask: Void = loadSeasons()
-                _ = await (userDataTask, detailsTask, creditsTask, providersTask, seasonsTask)
-            } else {
-                _ = await (userDataTask, detailsTask, creditsTask, providersTask)
+
+            // Load user data first (fast, local only)
+            await loadUserData()
+
+            // Calculate prediction in background
+            Task.detached(priority: .userInitiated) {
+                let engine = LinearPredictionEngine()
+                let pred = engine.predict(for: m, in: context, userId: userId)
+                await MainActor.run { self.prediction = pred }
             }
-            
-            if let ratings = await ratingsTask {
-                self.externalRatings = ratings
+
+            if m.genreIDs.isEmpty { Task { await selfHealGenres(for: m) } }
+
+            // Load network data in parallel (don't block UI)
+            Task {
+                async let ratingsTask: ExternalRatings? = {
+                    do {
+                        return try await ExternalRatingsService.fetch(forTitle: tmdb.displayTitle, year: tmdb.year)
+                    } catch {
+                        print("⚠️ Could not fetch external ratings: \(error)")
+                        return nil
+                    }
+                }()
+                async let detailsTask: Void = loadRichDetails()
+                async let creditsTask: Void = loadCredits()
+                async let providersTask: Void = loadProviders()
+
+                if mediaType == "tv" {
+                    async let seasonsTask: Void = loadSeasons()
+                    _ = await (detailsTask, creditsTask, providersTask, seasonsTask)
+                } else {
+                    _ = await (detailsTask, creditsTask, providersTask)
+                }
+
+                if let ratings = await ratingsTask {
+                    await MainActor.run { self.externalRatings = ratings }
+                }
             }
         }
         .onChange(of: activeSheet) { _, newValue in
