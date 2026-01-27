@@ -90,6 +90,49 @@ struct SearchView: View {
                 }
                 // MARK: - DISCOVERY
                 else {
+                    // Quick Access Buttons
+                    Section {
+                        HStack(spacing: 12) {
+                            NavigationLink {
+                                InTheatersView()
+                            } label: {
+                                VStack(spacing: 6) {
+                                    Image(systemName: "film.stack")
+                                        .font(.title2)
+                                        .foregroundStyle(.orange)
+                                    Text("In Theaters")
+                                        .font(.caption)
+                                        .fontWeight(.medium)
+                                }
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 12)
+                                .background(Color.orange.opacity(0.1))
+                                .cornerRadius(12)
+                            }
+                            .buttonStyle(.plain)
+
+                            NavigationLink {
+                                StreamingNowView()
+                            } label: {
+                                VStack(spacing: 6) {
+                                    Image(systemName: "play.tv")
+                                        .font(.title2)
+                                        .foregroundStyle(.blue)
+                                    Text("Streaming")
+                                        .font(.caption)
+                                        .fontWeight(.medium)
+                                }
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 12)
+                                .background(Color.blue.opacity(0.1))
+                                .cornerRadius(12)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+                        .listRowSeparator(.hidden)
+                    }
+
                     if !trending.isEmpty {
                         Section(header: Text("🔥 Trending Today")) {
                             ScrollView(.horizontal, showsIndicators: false) {
@@ -99,9 +142,16 @@ struct SearchView: View {
                             }.listRowInsets(EdgeInsets())
                         }
                     }
-                    
+
                     if !inTheaters.isEmpty {
-                        Section(header: Text("🍿 In Theaters")) {
+                        Section(header: HStack {
+                            Text("🍿 In Theaters")
+                            Spacer()
+                            NavigationLink("See All") {
+                                InTheatersView()
+                            }
+                            .font(.caption)
+                        }) {
                             ScrollView(.horizontal, showsIndicators: false) {
                                 HStack(spacing: 16) {
                                     ForEach(inTheaters, id: \.id) { m in DiscoveryCard(item: m) }
@@ -109,9 +159,16 @@ struct SearchView: View {
                             }.listRowInsets(EdgeInsets())
                         }
                     }
-                    
+
                     if !streaming.isEmpty {
-                        Section(header: Text("📺 Streaming Now")) {
+                        Section(header: HStack {
+                            Text("📺 Streaming Now")
+                            Spacer()
+                            NavigationLink("See All") {
+                                StreamingNowView()
+                            }
+                            .font(.caption)
+                        }) {
                             ScrollView(.horizontal, showsIndicators: false) {
                                 HStack(spacing: 16) {
                                     ForEach(streaming, id: \.id) { m in DiscoveryCard(item: m) }
@@ -381,4 +438,116 @@ struct FuzzySearch {
         "Transformers",
         "Pirates of the Caribbean"
     ]
+}
+
+// MARK: - In Theaters View
+struct InTheatersView: View {
+    @Environment(\.modelContext) private var context
+    @State private var movies: [TMDbItem] = []
+    @State private var isLoading = true
+
+    var body: some View {
+        Group {
+            if isLoading {
+                ProgressView("Loading...")
+            } else if movies.isEmpty {
+                ContentUnavailableView("No Movies Found", systemImage: "film", description: Text("Couldn't load movies currently in theaters"))
+            } else {
+                List(movies, id: \.id) { movie in
+                    NavigationLink {
+                        MovieInfoView(tmdb: movie, mediaType: "movie")
+                            .modelContext(context)
+                    } label: {
+                        HStack(spacing: 12) {
+                            PosterThumb(posterPath: movie.posterPath, title: movie.displayTitle, width: 60)
+                                .cornerRadius(8)
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(movie.displayTitle)
+                                    .font(.headline)
+                                    .lineLimit(2)
+                                if let year = movie.year {
+                                    Text(String(year))
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+                        .padding(.vertical, 4)
+                    }
+                }
+                .listStyle(.plain)
+            }
+        }
+        .navigationTitle("In Theaters")
+        .task {
+            await loadMovies()
+        }
+    }
+
+    private func loadMovies() async {
+        do {
+            let client = try TMDbClient()
+            let response = try await client.getNowPlaying()
+            self.movies = response.results
+        } catch {
+            print("Failed to load in theaters: \(error)")
+        }
+        isLoading = false
+    }
+}
+
+// MARK: - Streaming Now View
+struct StreamingNowView: View {
+    @Environment(\.modelContext) private var context
+    @State private var movies: [TMDbItem] = []
+    @State private var isLoading = true
+
+    var body: some View {
+        Group {
+            if isLoading {
+                ProgressView("Loading...")
+            } else if movies.isEmpty {
+                ContentUnavailableView("No Movies Found", systemImage: "play.tv", description: Text("Couldn't load streaming movies"))
+            } else {
+                List(movies, id: \.id) { movie in
+                    NavigationLink {
+                        MovieInfoView(tmdb: movie, mediaType: "movie")
+                            .modelContext(context)
+                    } label: {
+                        HStack(spacing: 12) {
+                            PosterThumb(posterPath: movie.posterPath, title: movie.displayTitle, width: 60)
+                                .cornerRadius(8)
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(movie.displayTitle)
+                                    .font(.headline)
+                                    .lineLimit(2)
+                                if let year = movie.year {
+                                    Text(String(year))
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+                        .padding(.vertical, 4)
+                    }
+                }
+                .listStyle(.plain)
+            }
+        }
+        .navigationTitle("Streaming Now")
+        .task {
+            await loadMovies()
+        }
+    }
+
+    private func loadMovies() async {
+        do {
+            let client = try TMDbClient()
+            let response = try await client.getStreaming()
+            self.movies = response.results
+        } catch {
+            print("Failed to load streaming: \(error)")
+        }
+        isLoading = false
+    }
 }

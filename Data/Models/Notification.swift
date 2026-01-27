@@ -8,17 +8,25 @@ struct AppNotification: Codable, Identifiable {
     let message: String
     let relatedId: UUID?
     let read: Bool
-    let createdAt: Date
-    
+
     // The person who triggered it (Joined)
     let actor: SocialProfile?
-    
+
+    // Store raw string, convert to Date in computed property
+    private let createdAtString: String
+
+    var createdAt: Date {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter.date(from: createdAtString) ?? Date()
+    }
+
     enum CodingKeys: String, CodingKey {
         case id, type, message, read
         case userId = "user_id"
         case actorId = "actor_id"
         case relatedId = "related_id"
-        case createdAt = "created_at"
+        case createdAtString = "created_at"
         case actor = "profiles" // Joined table
     }
 }
