@@ -94,7 +94,36 @@ struct MovieInfoView: View {
                 }
                 
                 ProvidersSectionView(providers: providers, title: tmdb.displayTitle)
-                
+
+                // Find Movie Times button for movies in theaters
+                if isInTheaters {
+                    Button {
+                        openMovieTimes()
+                    } label: {
+                        HStack {
+                            Image(systemName: "ticket.fill")
+                                .font(.title2)
+                                .foregroundStyle(.orange)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Find Movie Times")
+                                    .font(.headline)
+                                    .foregroundStyle(.primary)
+                                Text("Now playing in theaters")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .foregroundStyle(.secondary)
+                        }
+                        .padding()
+                        .background(Color.orange.opacity(0.1))
+                        .cornerRadius(12)
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.horizontal)
+                }
+
                 if let ov = tmdb.overview, !ov.isEmpty {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Overview").font(.headline)
@@ -155,11 +184,11 @@ struct MovieInfoView: View {
             // Load user data first (fast, local only)
             await loadUserData()
 
-            // Calculate prediction in background
-            Task.detached(priority: .userInitiated) {
+            // Calculate prediction (must stay on MainActor for SwiftData context)
+            Task {
                 let engine = LinearPredictionEngine()
                 let pred = engine.predict(for: m, in: context, userId: userId)
-                await MainActor.run { self.prediction = pred }
+                self.prediction = pred
             }
 
             if m.genreIDs.isEmpty { Task { await selfHealGenres(for: m) } }
@@ -205,14 +234,26 @@ struct MovieInfoView: View {
     // MARK: - Logic
     @MainActor private func generateShareImage() {
         guard let m = movie, let score = myScoreValue else { return }
-        
+
         #if os(iOS)
         let renderer = ImageRenderer(content: FlexCardView(movieTitle: m.title, posterPath: m.posterPath, score: score, rank: nil, username: "Me", avatarInitial: "M"))
         renderer.scale = 3.0
         if let image = renderer.uiImage { activeSheet = .share(image) }
         #endif
     }
-    
+
+    private func openMovieTimes() {
+        // Create a search URL for movie showtimes
+        let movieTitle = tmdb.displayTitle.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
+        let searchQuery = "\(movieTitle) movie times near me"
+        if let encoded = searchQuery.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+           let url = URL(string: "https://www.google.com/search?q=\(encoded)") {
+            #if os(iOS)
+            UIApplication.shared.open(url)
+            #endif
+        }
+    }
+
     private func loadSeasons() async {
         guard let client = try? TMDbClient() else { return }
         if let tvDetails = try? await client.getTVDetails(id: tmdb.id) {
