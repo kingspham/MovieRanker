@@ -20,15 +20,114 @@ struct SearchView: View {
     @State private var didYouMeanSuggestion: String? = nil
     @State private var fuzzySuggestions: [String] = []
 
+    // Recent searches for autocomplete
+    @StateObject private var recentSearchStore = RecentSearchStore()
+
     // Get known titles from local library for suggestions
     @Query private var allMovies: [Movie]
     var localTitles: [String] {
         allMovies.map { $0.title }
     }
 
+    // Real-time autocomplete suggestions (shown while typing, before search completes)
+    var autocompleteSuggestions: [String] {
+        guard query.count >= 2, !hasSearched else { return [] }
+
+        let queryLower = query.lowercased()
+        var suggestions: [String] = []
+
+        // 1. Check recent searches that match
+        let recentMatches = recentSearchStore.recent.filter {
+            $0.lowercased().contains(queryLower) || FuzzySearch.isFuzzyMatch(query: query, title: $0, threshold: 0.6)
+        }
+        suggestions.append(contentsOf: recentMatches.prefix(3))
+
+        // 2. Check local library titles that match
+        let localMatches = localTitles.filter {
+            $0.lowercased().hasPrefix(queryLower) ||
+            $0.lowercased().contains(queryLower) ||
+            FuzzySearch.isFuzzyMatch(query: query, title: $0, threshold: 0.65)
+        }
+        for match in localMatches.prefix(4) {
+            if !suggestions.contains(where: { $0.lowercased() == match.lowercased() }) {
+                suggestions.append(match)
+            }
+        }
+
+        // 3. Check popular titles for fuzzy matches
+        let popularMatches = FuzzySearch.findSuggestions(
+            query: query,
+            in: FuzzySearch.popularTitles,
+            maxResults: 3,
+            minSimilarity: 0.5
+        )
+        for match in popularMatches {
+            if !suggestions.contains(where: { $0.lowercased() == match.lowercased() }) {
+                suggestions.append(match)
+            }
+        }
+
+        return Array(suggestions.prefix(6))
+    }
+
     var body: some View {
         NavigationStack {
             List {
+                // MARK: - AUTOCOMPLETE SUGGESTIONS (shown while typing, before search completes)
+                if !query.isEmpty && !hasSearched && !autocompleteSuggestions.isEmpty {
+                    Section {
+                        ForEach(autocompleteSuggestions, id: \.self) { suggestion in
+                            Button {
+                                query = suggestion
+                            } label: {
+                                HStack {
+                                    Image(systemName: recentSearchStore.recent.contains(where: { $0.lowercased() == suggestion.lowercased() }) ? "clock.arrow.circlepath" : "magnifyingglass")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                    Text(suggestion)
+                                        .foregroundStyle(.primary)
+                                    Spacer()
+                                    Image(systemName: "arrow.up.left")
+                                        .font(.caption2)
+                                        .foregroundStyle(.tertiary)
+                                }
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    } header: {
+                        Text("Suggestions")
+                    }
+                }
+
+                // MARK: - RECENT SEARCHES (shown when query is empty or short)
+                if query.isEmpty && !recentSearchStore.recent.isEmpty {
+                    Section {
+                        ForEach(recentSearchStore.recent.prefix(5), id: \.self) { search in
+                            Button {
+                                query = search
+                            } label: {
+                                HStack {
+                                    Image(systemName: "clock.arrow.circlepath")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                    Text(search)
+                                        .foregroundStyle(.primary)
+                                    Spacer()
+                                }
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        Button(role: .destructive) {
+                            recentSearchStore.clear()
+                        } label: {
+                            Text("Clear Recent Searches")
+                                .font(.subheadline)
+                        }
+                    } header: {
+                        Text("Recent Searches")
+                    }
+                }
+
                 // MARK: - SEARCH RESULTS
                 if hasSearched && !query.isEmpty {
                     if isLoading {
@@ -159,6 +258,12 @@ struct SearchView: View {
         isLoading = true
         didYouMeanSuggestion = nil
         fuzzySuggestions = []
+
+        // Save to recent searches
+        let searchQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !searchQuery.isEmpty {
+            recentSearchStore.add(searchQuery)
+        }
 
         do {
             async let tmdbTask = TMDbClient().searchMulti(query: query)

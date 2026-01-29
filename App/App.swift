@@ -182,9 +182,10 @@ private struct AppMainView: View {
             }
         }
         .task {
-            // Poll for new notifications every 30 seconds
+            // Poll for new notifications every 5 minutes (reduced from 30s to save battery/network)
+            // The NotificationService also has internal caching/backoff for failed requests
             while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 30_000_000_000) // 30 seconds
+                try? await Task.sleep(nanoseconds: 300_000_000_000) // 5 minutes
                 guard !Task.isCancelled else { break }
                 await notifService.fetchNotifications()
             }

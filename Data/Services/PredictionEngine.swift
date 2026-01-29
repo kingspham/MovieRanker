@@ -17,6 +17,47 @@ protocol PredictionEngine {
 
 final class LinearPredictionEngine: PredictionEngine {
 
+    // Cached data for batch predictions (avoids repeated fetches)
+    private var cachedScores: [Score]?
+    private var cachedLogs: [LogEntry]?
+    private var cachedMovies: [UUID: Movie]?
+    private var cachedUserId: String?
+
+    /// Batch prediction - fetches data once and predicts for all movies efficiently
+    func predictBatch(for movies: [Movie], in context: ModelContext, userId: String) -> [UUID: PredictionExplanation] {
+        // Fetch all data once
+        let allScoresDescriptor = FetchDescriptor<Score>()
+        let allScores = (try? context.fetch(allScoresDescriptor)) ?? []
+        let userScores = allScores.filter { $0.ownerId == userId || $0.ownerId == "guest" }
+
+        let allLogsDescriptor = FetchDescriptor<LogEntry>()
+        let allLogs = (try? context.fetch(allLogsDescriptor)) ?? []
+        let userLogs = allLogs.filter { $0.ownerId == userId || $0.ownerId == "guest" }
+
+        let allMoviesDescriptor = FetchDescriptor<Movie>()
+        let allMovies = (try? context.fetch(allMoviesDescriptor)) ?? []
+        let movieLookup = Dictionary(uniqueKeysWithValues: allMovies.map { ($0.id, $0) })
+
+        // Build attribute map once
+        let attributeScores = buildAttributeMap(userScores: userScores, userLogs: userLogs, movieLookup: movieLookup)
+
+        // Calculate predictions for all movies
+        var results: [UUID: PredictionExplanation] = [:]
+        for movie in movies {
+            let prediction = predictWithCachedData(
+                for: movie,
+                userScores: userScores,
+                userLogs: userLogs,
+                movieLookup: movieLookup,
+                attributeScores: attributeScores,
+                userId: userId
+            )
+            results[movie.id] = prediction
+        }
+
+        return results
+    }
+
     func predict(for movie: Movie, in context: ModelContext, userId: String) -> PredictionExplanation {
         // Fetch all scores and filter in memory
         let allScoresDescriptor = FetchDescriptor<Score>()
@@ -148,6 +189,120 @@ final class LinearPredictionEngine: PredictionEngine {
             confidence: confidence,
             reasons: topReasons,
             debugInfo: debugInfo
+        )
+    }
+
+    // MARK: - Batch Prediction Helpers
+
+    /// Build attribute map from user's ratings (for batch predictions)
+    private func buildAttributeMap(userScores: [Score], userLogs: [LogEntry], movieLookup: [UUID: Movie]) -> [String: [Double]] {
+        var attributeScores: [String: [Double]] = [:]
+
+        // Process explicit scores
+        for score in userScores {
+            guard let rankedMovie = movieLookup[score.movieID] else { continue }
+            let rating = Double(score.display100) / 10.0
+            addMovieAttributes(movie: rankedMovie, rating: rating, to: &attributeScores)
+        }
+
+        // Process watched but not rated (implicit positive signal)
+        let scoredMovieIDs = Set(userScores.map { $0.movieID })
+        for log in userLogs {
+            guard let watchedMovie = log.movie,
+                  !scoredMovieIDs.contains(watchedMovie.id) else { continue }
+            addMovieAttributes(movie: watchedMovie, rating: 6.5, to: &attributeScores)
+        }
+
+        return attributeScores
+    }
+
+    /// Predict using pre-fetched cached data (for batch predictions)
+    private func predictWithCachedData(
+        for movie: Movie,
+        userScores: [Score],
+        userLogs: [LogEntry],
+        movieLookup: [UUID: Movie],
+        attributeScores: [String: [Double]],
+        userId: String
+    ) -> PredictionExplanation {
+        let hasScores = !userScores.isEmpty
+        let hasLogs = !userLogs.isEmpty
+
+        if !hasScores && !hasLogs {
+            let criticScore = getCriticBasedPrediction(for: movie)
+            return PredictionExplanation(
+                score: criticScore,
+                confidence: 0.2,
+                reasons: ["Based on critic consensus"],
+                debugInfo: "No user data - using critic scores"
+            )
+        }
+
+        // Filter scores for same media type using lookup
+        let sameTypeScores = userScores.filter { score in
+            guard let m = movieLookup[score.movieID] else { return false }
+            return m.mediaType == movie.mediaType
+        }
+
+        if sameTypeScores.isEmpty {
+            let criticScore = getCriticBasedPrediction(for: movie)
+            return PredictionExplanation(
+                score: criticScore,
+                confidence: 0.25,
+                reasons: ["Rate some \(movie.mediaType)s first", "Using critic scores"],
+                debugInfo: "No \(movie.mediaType) ratings yet"
+            )
+        }
+
+        // Calculate prediction using multiple methods
+        var predictions: [(score: Double, weight: Double, reason: String)] = []
+
+        if let gp = predictByGenres(movie: movie, attributeScores: attributeScores) {
+            predictions.append((gp.score, gp.confidence * 3.0, gp.reason))
+        }
+        if let tp = predictByTalent(movie: movie, attributeScores: attributeScores) {
+            predictions.append((tp.score, tp.confidence * 2.5, tp.reason))
+        }
+        if let ep = predictByEra(movie: movie, attributeScores: attributeScores) {
+            predictions.append((ep.score, ep.confidence * 1.0, ep.reason))
+        }
+
+        let criticScore = getCriticBasedPrediction(for: movie)
+        let userAvgScore = sameTypeScores.map { Double($0.display100) / 10.0 }.reduce(0, +) / Double(sameTypeScores.count)
+        let userBias = userAvgScore - 6.5
+        let adjustedCriticScore = criticScore + (userBias * 0.5)
+        predictions.append((adjustedCriticScore, 0.5, "Critic consensus"))
+
+        var finalScore: Double
+        var topReasons: [String] = []
+
+        if predictions.isEmpty {
+            finalScore = 5.0
+            topReasons = ["Not enough data"]
+        } else {
+            let sortedPredictions = predictions.sorted { $0.weight > $1.weight }
+            let totalWeight = predictions.reduce(0) { $0 + $1.weight }
+            let weightedSum = predictions.reduce(0) { $0 + ($1.score * $1.weight) }
+            finalScore = weightedSum / totalWeight
+
+            if let strongest = sortedPredictions.first, strongest.weight > 2.0 {
+                let deviation = strongest.score - finalScore
+                if abs(deviation) > 1.0 {
+                    finalScore += deviation * 0.3
+                }
+            }
+
+            topReasons = sortedPredictions.prefix(3).map { $0.reason }
+        }
+
+        let confidence = min(Double(sameTypeScores.count) / 10.0, 0.9)
+        finalScore = min(max(finalScore, 1.0), 10.0)
+
+        return PredictionExplanation(
+            score: finalScore,
+            confidence: confidence,
+            reasons: topReasons,
+            debugInfo: nil
         )
     }
 

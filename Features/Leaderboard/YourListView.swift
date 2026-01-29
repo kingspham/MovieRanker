@@ -200,7 +200,11 @@ struct SavedView: View {
                                     mediaType: movie.mediaType
                                 )
                             } label: {
-                                WatchlistRow(movie: movie, userId: userId, context: context)
+                                WatchlistRow(
+                                    movie: movie,
+                                    userId: userId,
+                                    cachedPredictionScore: predictionCache[item.id]
+                                )
                             }
                             .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                                 Button(role: .destructive) {
@@ -234,12 +238,23 @@ struct SavedView: View {
 
     private func loadPredictions() async {
         guard !isPredictionsLoaded else { return }
-        let engine = LinearPredictionEngine()
-        var newCache: [UUID: Double] = [:]
 
+        // Get all movies from watchlist
+        let movies = watchlistItems.compactMap { $0.movie }
+        guard !movies.isEmpty else {
+            isPredictionsLoaded = true
+            return
+        }
+
+        // Use batch prediction for efficiency (fetches data once instead of per-movie)
+        let engine = LinearPredictionEngine()
+        let predictions = engine.predictBatch(for: movies, in: context, userId: userId)
+
+        // Map movie IDs to UserItem IDs for cache
+        var newCache: [UUID: Double] = [:]
         for item in watchlistItems {
-            guard let movie = item.movie else { continue }
-            let pred = engine.predict(for: movie, in: context, userId: userId)
+            guard let movie = item.movie,
+                  let pred = predictions[movie.id] else { continue }
             newCache[item.id] = pred.score * 10 // Convert to 0-100 scale
         }
 
@@ -282,30 +297,26 @@ struct SavedView: View {
 struct WatchlistRow: View {
     let movie: Movie
     let userId: String
-    let context: ModelContext
-    
-    var prediction: PredictionExplanation? {
-        let engine = LinearPredictionEngine()
-        return engine.predict(for: movie, in: context, userId: userId)
-    }
-    
+    // Cached prediction score passed from parent (avoids recomputing on every render)
+    var cachedPredictionScore: Double?
+
     var body: some View {
         HStack(spacing: 12) {
             PosterThumb(posterPath: movie.posterPath, title: movie.title, width: 50)
                 .cornerRadius(6)
-            
+
             VStack(alignment: .leading, spacing: 4) {
                 Text(movie.title)
                     .font(.headline)
                     .lineLimit(2)
-                
+
                 HStack(spacing: 8) {
                     if let year = movie.year {
                         Text(String(year))
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
-                    
+
                     Text(movie.mediaType.capitalized)
                         .font(.caption2)
                         .padding(.horizontal, 6)
@@ -313,13 +324,13 @@ struct WatchlistRow: View {
                         .background(Color.blue.opacity(0.1))
                         .foregroundColor(.blue)
                         .cornerRadius(4)
-                    
-                    // Predicted score
-                    if let pred = prediction {
+
+                    // Predicted score (uses cached value from parent)
+                    if let predScore = cachedPredictionScore {
                         HStack(spacing: 2) {
                             Image(systemName: "wand.and.stars")
                                 .font(.caption2)
-                            Text("\(Int(pred.score * 10))")
+                            Text("\(Int(predScore))")
                                 .font(.caption)
                                 .fontWeight(.medium)
                         }
@@ -327,9 +338,9 @@ struct WatchlistRow: View {
                     }
                 }
             }
-            
+
             Spacer()
-            
+
             Image(systemName: "bookmark.fill")
                 .foregroundStyle(.blue)
                 .font(.caption)

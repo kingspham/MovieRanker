@@ -8,7 +8,7 @@ import Combine
 final class NotificationService: ObservableObject {
     static let shared = NotificationService()
     private var client: SupabaseClient { AuthService.shared.client }
-    
+
     @Published var notifications: [AppNotification] = []
     @Published var unreadCount: Int = 0 {
         didSet {
@@ -16,12 +16,46 @@ final class NotificationService: ObservableObject {
             // instead of UIKit to keep this file clean.
         }
     }
-    
+
+    // Caching to avoid repeated failed fetches
+    private var lastFetchTime: Date?
+    private var lastFetchFailed: Bool = false
+    private var consecutiveFailures: Int = 0
+    private let minFetchInterval: TimeInterval = 60 // Minimum 60 seconds between fetches
+    private let failedFetchBackoff: TimeInterval = 300 // 5 minutes after failures
+
+    /// Check if we should fetch notifications (respects caching and backoff)
+    func shouldFetch() -> Bool {
+        guard let lastFetch = lastFetchTime else { return true }
+
+        let timeSinceLastFetch = Date().timeIntervalSince(lastFetch)
+
+        // If last fetch failed, use longer backoff
+        if lastFetchFailed {
+            return timeSinceLastFetch >= failedFetchBackoff
+        }
+
+        return timeSinceLastFetch >= minFetchInterval
+    }
+
+    /// Force fetch (bypasses caching - use sparingly)
+    func forceFetch() async {
+        await performFetch()
+    }
+
     func fetchNotifications() async {
+        // Respect caching to avoid spamming failed requests
+        guard shouldFetch() else { return }
+        await performFetch()
+    }
+
+    private func performFetch() async {
         guard let myId = client.auth.currentUser?.id else {
             print("⚠️ No user ID for notifications")
             return
         }
+
+        lastFetchTime = Date()
 
         // Try multiple query patterns for robustness
         let queries: [(String, String)] = [
@@ -43,15 +77,25 @@ final class NotificationService: ObservableObject {
 
                 self.notifications = response
                 self.unreadCount = response.filter { !$0.read }.count
+                self.lastFetchFailed = false
+                self.consecutiveFailures = 0
                 print("✅ Fetched \(response.count) notifications \(name) (\(self.unreadCount) unread)")
                 return // Success, exit loop
             } catch {
-                print("⚠️ Notification fetch \(name) failed: \(error.localizedDescription)")
+                // Only log on first failure to reduce spam
+                if consecutiveFailures == 0 {
+                    print("⚠️ Notification fetch \(name) failed: \(error.localizedDescription)")
+                }
                 continue // Try next query pattern
             }
         }
 
-        print("❌ All notification fetch patterns failed")
+        // All patterns failed
+        self.lastFetchFailed = true
+        self.consecutiveFailures += 1
+        if consecutiveFailures == 1 {
+            print("❌ All notification fetch patterns failed - backing off")
+        }
     }
     
     func markAllRead() async {
