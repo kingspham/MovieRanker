@@ -8,7 +8,7 @@ struct WatchHistoryView: View {
     @Environment(\.modelContext) private var context
     @Query private var logs: [LogEntry]
     @Query private var scores: [Score]
-    
+
     @State private var userId: String = "guest"
     @State private var searchText: String = ""
     @AppStorage("historySortOrder") private var sortOrderRaw: String = HistorySortOption.dateWatched.rawValue
@@ -20,30 +20,42 @@ struct WatchHistoryView: View {
     func setSortOrder(_ newValue: HistorySortOption) {
         sortOrderRaw = newValue.rawValue
     }
-    
+
     enum HistorySortOption: String, CaseIterable, Identifiable {
         case dateWatched = "Date Watched"
         case score = "Your Score"
         case title = "Title"
         case year = "Year"
-        
+
         var id: String { rawValue }
     }
-    
+
+    // Precomputed score lookup dictionary for O(1) access (fixes N+1 query issue)
+    var scoreLookup: [UUID: Int] {
+        var lookup: [UUID: Int] = [:]
+        for score in scores where score.ownerId == userId {
+            lookup[score.movieID] = score.display100
+        }
+        return lookup
+    }
+
     var filteredLogs: [LogEntry] {
         let filtered = logs.filter { log in
             (log.ownerId == userId || log.ownerId == "guest") &&
             (searchText.isEmpty || log.movie?.title.localizedCaseInsensitiveContains(searchText) == true)
         }
-        
+
+        // Use precomputed lookup for O(1) score access
+        let lookup = scoreLookup
+
         // Sort based on selection
         switch sortOrder {
         case .dateWatched:
             return filtered.sorted { ($0.watchedOn ?? Date.distantPast) > ($1.watchedOn ?? Date.distantPast) }
         case .score:
             return filtered.sorted { (log1, log2) in
-                let score1 = scores.first { $0.movieID == log1.movie?.id && $0.ownerId == userId }?.display100 ?? 0
-                let score2 = scores.first { $0.movieID == log2.movie?.id && $0.ownerId == userId }?.display100 ?? 0
+                let score1 = log1.movie.flatMap { lookup[$0.id] } ?? 0
+                let score2 = log2.movie.flatMap { lookup[$0.id] } ?? 0
                 return score1 > score2
             }
         case .title:
@@ -88,6 +100,8 @@ struct WatchHistoryView: View {
             
             // List
             List {
+                // Capture scoreLookup once for the list to avoid recomputation per row
+                let lookup = scoreLookup
                 ForEach(filteredLogs) { log in
                     if let movie = log.movie {
                         NavigationLink {
@@ -127,8 +141,9 @@ struct WatchHistoryView: View {
 
                                 Spacer()
 
-                                if let score = scores.first(where: { $0.movieID == movie.id && $0.ownerId == userId }) {
-                                    Text("\(score.display100)")
+                                // Use O(1) dictionary lookup instead of O(n) linear search
+                                if let scoreValue = lookup[movie.id] {
+                                    Text("\(scoreValue)")
                                         .font(.title3)
                                         .fontWeight(.bold)
                                         .foregroundStyle(.green)
