@@ -99,8 +99,18 @@ struct FeedView: View {
                 ToolbarItem(placement: .navigationBarLeading) {
                     NavigationLink(destination: NotificationsView()) {
                         ZStack(alignment: .topTrailing) {
-                            Image(systemName: "bell").font(.title3).foregroundStyle(.primary)
-                            if notifService.unreadCount > 0 { Circle().fill(.red).frame(width: 10, height: 10) }
+                            Image(systemName: notifService.unreadCount > 0 ? "bell.fill" : "bell")
+                                .font(.title3)
+                                .foregroundStyle(notifService.unreadCount > 0 ? .orange : .primary)
+                                .symbolEffect(.bounce, value: notifService.unreadCount)
+                            if notifService.unreadCount > 0 {
+                                Text("\(min(notifService.unreadCount, 99))")
+                                    .font(.system(size: 10, weight: .bold))
+                                    .foregroundStyle(.white)
+                                    .padding(4)
+                                    .background(Circle().fill(.red))
+                                    .offset(x: 8, y: -8)
+                            }
                         }
                     }
                 }
@@ -108,8 +118,17 @@ struct FeedView: View {
                 ToolbarItem(placement: .navigation) {
                     NavigationLink(destination: NotificationsView()) {
                         ZStack(alignment: .topTrailing) {
-                            Image(systemName: "bell").font(.title3).foregroundStyle(.primary)
-                            if notifService.unreadCount > 0 { Circle().fill(.red).frame(width: 10, height: 10) }
+                            Image(systemName: notifService.unreadCount > 0 ? "bell.fill" : "bell")
+                                .font(.title3)
+                                .foregroundStyle(notifService.unreadCount > 0 ? .orange : .primary)
+                            if notifService.unreadCount > 0 {
+                                Text("\(min(notifService.unreadCount, 99))")
+                                    .font(.system(size: 10, weight: .bold))
+                                    .foregroundStyle(.white)
+                                    .padding(4)
+                                    .background(Circle().fill(.red))
+                                    .offset(x: 8, y: -8)
+                            }
                         }
                     }
                 }

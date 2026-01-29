@@ -144,6 +144,7 @@ private struct RootEntryView: View {
 private struct AppMainView: View {
     @StateObject private var notifService = NotificationService.shared
     @Environment(\.modelContext) private var context
+    @Environment(\.scenePhase) private var scenePhase
     @AppStorage("lastSyncTime") private var lastSyncTime: Double = 0
 
     var body: some View {
@@ -172,11 +173,28 @@ private struct AppMainView: View {
             let fiveMinutes: Double = 300
             let now = Date().timeIntervalSince1970
             if now - lastSyncTime > fiveMinutes {
-                print("🔄 Auto-syncing scores from cloud...")
+                print("🔄 Auto-syncing from cloud...")
                 await ScoreService.shared.syncScores(context: context)
                 await UserItemService.shared.syncUserItems(context: context)
+                await ListService.shared.syncLists(context: context)
                 lastSyncTime = now
                 print("✅ Auto-sync complete")
+            }
+        }
+        .task {
+            // Poll for new notifications every 30 seconds
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 30_000_000_000) // 30 seconds
+                guard !Task.isCancelled else { break }
+                await notifService.fetchNotifications()
+            }
+        }
+        .onChange(of: scenePhase) { _, newPhase in
+            // Refresh notifications when app becomes active
+            if newPhase == .active {
+                Task {
+                    await notifService.fetchNotifications()
+                }
             }
         }
     }

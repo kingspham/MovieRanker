@@ -90,49 +90,6 @@ struct SearchView: View {
                 }
                 // MARK: - DISCOVERY
                 else {
-                    // Quick Access Buttons
-                    Section {
-                        HStack(spacing: 12) {
-                            NavigationLink {
-                                InTheatersView()
-                            } label: {
-                                VStack(spacing: 6) {
-                                    Image(systemName: "film.stack")
-                                        .font(.title2)
-                                        .foregroundStyle(.orange)
-                                    Text("In Theaters")
-                                        .font(.caption)
-                                        .fontWeight(.medium)
-                                }
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 12)
-                                .background(Color.orange.opacity(0.1))
-                                .cornerRadius(12)
-                            }
-                            .buttonStyle(.plain)
-
-                            NavigationLink {
-                                StreamingNowView()
-                            } label: {
-                                VStack(spacing: 6) {
-                                    Image(systemName: "play.tv")
-                                        .font(.title2)
-                                        .foregroundStyle(.blue)
-                                    Text("Streaming")
-                                        .font(.caption)
-                                        .fontWeight(.medium)
-                                }
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 12)
-                                .background(Color.blue.opacity(0.1))
-                                .cornerRadius(12)
-                            }
-                            .buttonStyle(.plain)
-                        }
-                        .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
-                        .listRowSeparator(.hidden)
-                    }
-
                     if !trending.isEmpty {
                         Section(header: Text("🔥 Trending Today")) {
                             ScrollView(.horizontal, showsIndicators: false) {
