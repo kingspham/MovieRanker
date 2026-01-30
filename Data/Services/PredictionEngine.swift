@@ -59,15 +59,19 @@ final class LinearPredictionEngine: PredictionEngine {
     }
 
     func predict(for movie: Movie, in context: ModelContext, userId: String) -> PredictionExplanation {
-        // Fetch all scores and filter in memory
+        // PERFORMANCE FIX: Fetch all data ONCE and use dictionaries for O(1) lookups
         let allScoresDescriptor = FetchDescriptor<Score>()
         let allScores = (try? context.fetch(allScoresDescriptor)) ?? []
         let userScores = allScores.filter { $0.ownerId == userId || $0.ownerId == "guest" }
 
-        // Fetch all logs and filter in memory
         let allLogsDescriptor = FetchDescriptor<LogEntry>()
         let allLogs = (try? context.fetch(allLogsDescriptor)) ?? []
         let userLogs = allLogs.filter { $0.ownerId == userId || $0.ownerId == "guest" }
+
+        // CRITICAL: Fetch all movies ONCE and create lookup dictionary
+        let allMoviesDescriptor = FetchDescriptor<Movie>()
+        let allMovies = (try? context.fetch(allMoviesDescriptor)) ?? []
+        let movieLookup = Dictionary(uniqueKeysWithValues: allMovies.map { ($0.id, $0) })
 
         let hasScores = !userScores.isEmpty
         let hasLogs = !userLogs.isEmpty
@@ -86,15 +90,15 @@ final class LinearPredictionEngine: PredictionEngine {
         // Build attribute map from user's ratings
         var attributeScores: [String: [Double]] = [:]
 
-        // Process explicit scores - include all media types for broader learning
+        // Process explicit scores - use lookup instead of repeated fetches
         let sameTypeScores = userScores.filter { score in
-            guard let m = fetchMovie(id: score.movieID, context: context) else { return false }
+            guard let m = movieLookup[score.movieID] else { return false }
             return m.mediaType == movie.mediaType
         }
 
-        // Also get cross-type scores for genre learning
+        // Also get cross-type scores for genre learning - use lookup
         let allUserScoresWithMovies = userScores.compactMap { score -> (Score, Movie)? in
-            guard let m = fetchMovie(id: score.movieID, context: context) else { return nil }
+            guard let m = movieLookup[score.movieID] else { return nil }
             return (score, m)
         }
 

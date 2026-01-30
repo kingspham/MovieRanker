@@ -61,11 +61,13 @@ struct SavedView: View {
     @State private var userId: String = "guest"
     @State private var searchText: String = ""
     @AppStorage("watchlistSortOrder") private var sortOrderRaw: String = WatchlistSortOption.dateAdded.rawValue
+    @AppStorage("watchlistSortAscending") private var sortAscending: Bool = false // false = descending
     @State private var showRankAll = false
 
     // Cached predictions to avoid recomputing on every render
     @State private var predictionCache: [UUID: Double] = [:]
     @State private var isPredictionsLoaded = false
+    @State private var lastLoadedItemCount = 0  // Track if items changed
 
     var sortOrder: WatchlistSortOption {
         get { WatchlistSortOption(rawValue: sortOrderRaw) ?? .dateAdded }
@@ -96,27 +98,29 @@ struct SavedView: View {
     }
 
     var sortedItems: [UserItem] {
+        let sorted: [UserItem]
         switch sortOrder {
         case .dateAdded:
-            return watchlistItems.sorted { $0.createdAt > $1.createdAt }
+            sorted = watchlistItems.sorted { $0.createdAt > $1.createdAt }
         case .predicted:
             // Use cached predictions for sorting
-            return watchlistItems.sorted { (item1, item2) in
+            sorted = watchlistItems.sorted { (item1, item2) in
                 let pred1 = predictionCache[item1.id] ?? 50.0
                 let pred2 = predictionCache[item2.id] ?? 50.0
                 return pred1 > pred2
             }
         case .title:
-            return watchlistItems.sorted { ($0.movie?.title ?? "") < ($1.movie?.title ?? "") }
+            sorted = watchlistItems.sorted { ($0.movie?.title ?? "") < ($1.movie?.title ?? "") }
         case .year:
-            return watchlistItems.sorted { ($0.movie?.year ?? 0) > ($1.movie?.year ?? 0) }
+            sorted = watchlistItems.sorted { ($0.movie?.year ?? 0) > ($1.movie?.year ?? 0) }
         case .metacritic:
-            return watchlistItems.sorted { metaScore(for: $0) > metaScore(for: $1) }
+            sorted = watchlistItems.sorted { metaScore(for: $0) > metaScore(for: $1) }
         case .imdb:
-            return watchlistItems.sorted { imdbScore(for: $0) > imdbScore(for: $1) }
+            sorted = watchlistItems.sorted { imdbScore(for: $0) > imdbScore(for: $1) }
         case .rottenTomatoes:
-            return watchlistItems.sorted { rottenTomatoesScore(for: $0) > rottenTomatoesScore(for: $1) }
+            sorted = watchlistItems.sorted { rottenTomatoesScore(for: $0) > rottenTomatoesScore(for: $1) }
         }
+        return sortAscending ? sorted.reversed() : sorted
     }
     
     // Get unranked items count for Rank All button
@@ -158,7 +162,23 @@ struct SavedView: View {
                         .foregroundColor(.blue)
                         .cornerRadius(8)
                     }
-                    
+
+                    // Ascending/Descending Toggle
+                    Button {
+                        sortAscending.toggle()
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: sortAscending ? "arrow.up" : "arrow.down")
+                            Text(sortAscending ? "Ascending" : "Descending")
+                        }
+                        .font(.subheadline)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(Color.gray.opacity(0.15))
+                        .foregroundColor(.primary)
+                        .cornerRadius(8)
+                    }
+
                     // Rank All button (only show if unranked items exist)
                     if unrankedCount > 0 {
                         Button {
@@ -237,12 +257,16 @@ struct SavedView: View {
     }
 
     private func loadPredictions() async {
-        guard !isPredictionsLoaded else { return }
+        let currentItemCount = watchlistItems.count
+
+        // Reload if items changed or never loaded
+        guard !isPredictionsLoaded || currentItemCount != lastLoadedItemCount else { return }
 
         // Get all movies from watchlist
         let movies = watchlistItems.compactMap { $0.movie }
         guard !movies.isEmpty else {
             isPredictionsLoaded = true
+            lastLoadedItemCount = currentItemCount
             return
         }
 
@@ -255,12 +279,16 @@ struct SavedView: View {
         for item in watchlistItems {
             guard let movie = item.movie,
                   let pred = predictions[movie.id] else { continue }
-            newCache[item.id] = pred.score * 10 // Convert to 0-100 scale
+            // Convert to 0-100 scale (prediction score is 0-10)
+            let score100 = pred.score * 10.0
+            newCache[item.id] = score100
+            print("📊 Prediction for \(movie.title): \(Int(score100))")
         }
 
         await MainActor.run {
             predictionCache = newCache
             isPredictionsLoaded = true
+            lastLoadedItemCount = currentItemCount
         }
     }
     

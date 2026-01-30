@@ -165,9 +165,27 @@ struct RapidFireView: View {
     }
     
     func loadData() async {
+        // FIX: Exclude movies that user has RATED, not just "owned"
         let allMovies = (try? context.fetch(FetchDescriptor<Movie>())) ?? []
-        let userMovies = allMovies.filter { $0.ownerId == userId }
-        self.seenTMDBIds = Set(userMovies.compactMap { $0.tmdbID })
+
+        // Get all scores for this user
+        let allScores = (try? context.fetch(FetchDescriptor<Score>())) ?? []
+        let userScoreMovieIDs = Set(allScores.filter { $0.ownerId == userId || $0.ownerId == "guest" }.map { $0.movieID })
+
+        // Get TMDb IDs of rated movies
+        let ratedTMDbIds = allMovies
+            .filter { userScoreMovieIDs.contains($0.id) }
+            .compactMap { $0.tmdbID }
+
+        // Also exclude movies in user's library (watchlist, seen, etc.)
+        let userMovieTMDbIds = allMovies
+            .filter { $0.ownerId == userId || $0.ownerId == "guest" }
+            .compactMap { $0.tmdbID }
+
+        // Combine both sets - exclude rated AND library items
+        self.seenTMDBIds = Set(ratedTMDbIds + userMovieTMDbIds)
+
+        print("📋 Rapid Fire: Excluding \(seenTMDBIds.count) already-seen/rated movies")
         await fetchMoreCards()
     }
     
