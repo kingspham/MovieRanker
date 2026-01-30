@@ -12,6 +12,7 @@ struct WatchHistoryView: View {
     @State private var userId: String = "guest"
     @State private var searchText: String = ""
     @AppStorage("historySortOrder") private var sortOrderRaw: String = HistorySortOption.dateWatched.rawValue
+    @AppStorage("historySortAscending") private var sortAscending: Bool = false // false = descending (newest first)
 
     var sortOrder: HistorySortOption {
         HistorySortOption(rawValue: sortOrderRaw) ?? .dateWatched
@@ -48,21 +49,23 @@ struct WatchHistoryView: View {
         // Use precomputed lookup for O(1) score access
         let lookup = scoreLookup
 
-        // Sort based on selection
+        // Sort based on selection (with ascending/descending support)
+        let sorted: [LogEntry]
         switch sortOrder {
         case .dateWatched:
-            return filtered.sorted { ($0.watchedOn ?? Date.distantPast) > ($1.watchedOn ?? Date.distantPast) }
+            sorted = filtered.sorted { ($0.watchedOn ?? Date.distantPast) > ($1.watchedOn ?? Date.distantPast) }
         case .score:
-            return filtered.sorted { (log1, log2) in
+            sorted = filtered.sorted { (log1, log2) in
                 let score1 = log1.movie.flatMap { lookup[$0.id] } ?? 0
                 let score2 = log2.movie.flatMap { lookup[$0.id] } ?? 0
                 return score1 > score2
             }
         case .title:
-            return filtered.sorted { ($0.movie?.title ?? "") < ($1.movie?.title ?? "") }
+            sorted = filtered.sorted { ($0.movie?.title ?? "") < ($1.movie?.title ?? "") }
         case .year:
-            return filtered.sorted { ($0.movie?.year ?? 0) > ($1.movie?.year ?? 0) }
+            sorted = filtered.sorted { ($0.movie?.year ?? 0) > ($1.movie?.year ?? 0) }
         }
+        return sortAscending ? sorted.reversed() : sorted
     }
     
     var body: some View {
@@ -91,7 +94,23 @@ struct WatchHistoryView: View {
                         .foregroundColor(.blue)
                         .cornerRadius(8)
                     }
-                    
+
+                    // Ascending/Descending Toggle
+                    Button {
+                        sortAscending.toggle()
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: sortAscending ? "arrow.up" : "arrow.down")
+                            Text(sortAscending ? "Ascending" : "Descending")
+                        }
+                        .font(.subheadline)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(Color.gray.opacity(0.15))
+                        .foregroundColor(.primary)
+                        .cornerRadius(8)
+                    }
+
                     Spacer()
                 }
                 .padding(.horizontal)
