@@ -117,30 +117,38 @@ struct RankingSheet: View {
                 }
             }
             
-            if relevantScores.isEmpty {
-                Button {
-                    triggerHaptic(heavy: true)
-                    saveSingleScore(85)
-                } label: {
-                    Text("My First Log!")
-                        .font(.headline).bold()
-                        .frame(maxWidth: .infinity)
-                        .padding()
-                        .background(Color.accentColor)
-                        .foregroundColor(.white)
-                        .cornerRadius(16)
+            // Always show sentiment buttons - even for first log
+            VStack(spacing: 16) {
+                if relevantScores.isEmpty {
+                    Text("How did you like it?")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
                 }
-                .padding(.horizontal, 40)
-            } else {
+
                 HStack(spacing: 16) {
                     SentimentButton(color: .green, icon: "arrow.up.heart.fill", label: "Loved it") {
-                        configureBattle(tier: .high)
+                        if relevantScores.isEmpty {
+                            triggerHaptic(heavy: true)
+                            saveSingleScore(90) // First log - loved = 90
+                        } else {
+                            configureBattle(tier: .high)
+                        }
                     }
                     SentimentButton(color: .blue, icon: "hand.thumbsup.fill", label: "Liked it") {
-                        configureBattle(tier: .mid)
+                        if relevantScores.isEmpty {
+                            triggerHaptic(heavy: true)
+                            saveSingleScore(75) // First log - liked = 75
+                        } else {
+                            configureBattle(tier: .mid)
+                        }
                     }
                     SentimentButton(color: .gray, icon: "hand.thumbsdown.fill", label: "Meh") {
-                        configureBattle(tier: .low)
+                        if relevantScores.isEmpty {
+                            triggerHaptic(heavy: true)
+                            saveSingleScore(50) // First log - meh = 50
+                        } else {
+                            configureBattle(tier: .low)
+                        }
                     }
                 }
                 .padding(.horizontal)

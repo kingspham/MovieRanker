@@ -1,8 +1,16 @@
 // LogEntry.swift
-// UPDATED - Added reading tracker fields for books
+// UPDATED - Added reading tracker fields for books + book format
 
 import Foundation
 import SwiftData
+
+// Book format enum
+enum BookFormat: String, Codable, CaseIterable {
+    case physical = "Physical"
+    case ebook = "E-Reader"
+    case audiobook = "Audiobook"
+    case notSure = "Not Sure"
+}
 
 @Model
 final class LogEntry {
@@ -16,10 +24,16 @@ final class LogEntry {
     var labels: [String]?
     var movie: Movie?
     var ownerId: String
-    
+
     // Reading Tracker (for books)
     var startedReading: Date?
     var finishedReading: Date?
+
+    // Book format (physical, e-reader, audiobook)
+    var bookFormat: BookFormat?
+
+    // Social tagging - IDs of users who watched/read with you
+    var taggedUserIds: [String]?
 
     init(
         id: UUID = UUID(),
@@ -33,7 +47,9 @@ final class LogEntry {
         movie: Movie? = nil,
         ownerId: String,
         startedReading: Date? = nil,
-        finishedReading: Date? = nil
+        finishedReading: Date? = nil,
+        bookFormat: BookFormat? = nil,
+        taggedUserIds: [String]? = nil
     ) {
         self.id = id
         self.createdAt = createdAt
@@ -47,8 +63,10 @@ final class LogEntry {
         self.ownerId = ownerId
         self.startedReading = startedReading
         self.finishedReading = finishedReading
+        self.bookFormat = bookFormat
+        self.taggedUserIds = taggedUserIds
     }
-    
+
     // Computed property for reading duration
     var readingDuration: Int? {
         guard let start = startedReading, let finish = finishedReading else { return nil }
