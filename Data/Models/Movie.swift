@@ -27,6 +27,15 @@ final class Movie {
     var metaScore: String?
     var rottenTomatoesRating: String?
 
+    // Enhanced prediction fields (from TMDb)
+    var runtime: Int?                    // Runtime in minutes
+    var keywords: [String]?              // Content keywords/tags
+    var productionCountries: [String]?   // Country codes (e.g., "US", "GB")
+    var originalLanguage: String?        // Original language code (e.g., "en", "ko")
+    var budget: Int?                     // Production budget in USD
+    var voteAverage: Double?             // TMDb user rating (0-10)
+    var voteCount: Int?                  // Number of TMDb votes
+
     // --- CRITICAL FIX: Inverse Relationship ---
     // This creates a stable link between Movie and UserItem
     @Relationship(deleteRule: .cascade, inverse: \UserItem.movie)
@@ -49,7 +58,14 @@ final class Movie {
         watchProviders: [String]? = nil,
         imdbRating: String? = nil,
         metaScore: String? = nil,
-        rottenTomatoesRating: String? = nil
+        rottenTomatoesRating: String? = nil,
+        runtime: Int? = nil,
+        keywords: [String]? = nil,
+        productionCountries: [String]? = nil,
+        originalLanguage: String? = nil,
+        budget: Int? = nil,
+        voteAverage: Double? = nil,
+        voteCount: Int? = nil
     ) {
         self.id = id
         self.title = title
@@ -70,5 +86,12 @@ final class Movie {
         self.imdbRating = imdbRating
         self.metaScore = metaScore
         self.rottenTomatoesRating = rottenTomatoesRating
+        self.runtime = runtime
+        self.keywords = keywords
+        self.productionCountries = productionCountries
+        self.originalLanguage = originalLanguage
+        self.budget = budget
+        self.voteAverage = voteAverage
+        self.voteCount = voteCount
     }
 }

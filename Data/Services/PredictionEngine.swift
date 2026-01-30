@@ -147,7 +147,37 @@ final class LinearPredictionEngine: PredictionEngine {
             predictions.append((ep.score, ep.confidence * 1.5, ep.reason))
         }
 
-        // METHOD 4: User's average rating bias (personalized baseline)
+        // METHOD 4: Keywords/theme matching (STRONG signal)
+        let keywordPrediction = predictByKeywords(movie: movie, attributeScores: attributeScores)
+        if let kp = keywordPrediction {
+            predictions.append((kp.score, kp.confidence * 3.5, kp.reason))
+        }
+
+        // METHOD 5: Runtime preference
+        let runtimePrediction = predictByRuntime(movie: movie, attributeScores: attributeScores)
+        if let rp = runtimePrediction {
+            predictions.append((rp.score, rp.confidence * 1.5, rp.reason))
+        }
+
+        // METHOD 6: Origin/language preference
+        let originPrediction = predictByOrigin(movie: movie, attributeScores: attributeScores)
+        if let op = originPrediction {
+            predictions.append((op.score, op.confidence * 2.0, op.reason))
+        }
+
+        // METHOD 7: Popularity preference (mainstream vs indie)
+        let popularityPrediction = predictByPopularity(movie: movie, attributeScores: attributeScores)
+        if let pp = popularityPrediction {
+            predictions.append((pp.score, pp.confidence * 1.2, pp.reason))
+        }
+
+        // METHOD 8: TMDb user rating signal
+        let tmdbPrediction = predictByTMDbRating(movie: movie, attributeScores: attributeScores)
+        if let tp = tmdbPrediction {
+            predictions.append((tp.score, tp.confidence * 1.0, tp.reason))
+        }
+
+        // METHOD 9: User's average rating bias (personalized baseline)
         let relevantScores = sameTypeScores.isEmpty ? userScores : sameTypeScores
         if !relevantScores.isEmpty {
             let scores = relevantScores.map { Double($0.display100) / 10.0 }
@@ -159,7 +189,7 @@ final class LinearPredictionEngine: PredictionEngine {
             predictions.append((baselineScore, 1.0, "Your rating style"))
         }
 
-        // METHOD 5: Critic score (lower weight - user prefs matter more)
+        // METHOD 10: Critic score (lower weight - user prefs matter more)
         let criticScore = getCriticBasedPrediction(for: movie)
         if criticScore != 6.0 { // Only add if we have real critic data
             predictions.append((criticScore, 0.8, "Critic consensus"))
@@ -490,6 +520,226 @@ final class LinearPredictionEngine: PredictionEngine {
         return (avgScore, confidence, "\(decade)s")
     }
 
+    /// Predict based on content keywords/themes
+    private func predictByKeywords(movie: Movie, attributeScores: [String: [Double]]) -> (score: Double, confidence: Double, reason: String)? {
+        guard let keywords = movie.keywords, !keywords.isEmpty else { return nil }
+
+        var keywordScores: [(score: Double, keyword: String, weight: Double)] = []
+
+        for keyword in keywords {
+            let key = "keyword:\(keyword.lowercased())"
+            if let scores = attributeScores[key], !scores.isEmpty {
+                let avg = scores.reduce(0, +) / Double(scores.count)
+                // More samples = higher confidence
+                keywordScores.append((avg, keyword, Double(scores.count)))
+            }
+        }
+
+        guard !keywordScores.isEmpty else { return nil }
+
+        // Weighted average by sample count
+        let totalWeight = keywordScores.reduce(0.0) { $0 + $1.weight }
+        let weightedSum = keywordScores.reduce(0.0) { $0 + ($1.score * $1.weight) }
+        let avgScore = weightedSum / totalWeight
+
+        let matchedCount = keywordScores.count
+        let confidence = min(Double(matchedCount) / 3.0, 1.0)
+
+        // Use top matching keyword for reason
+        let topKeyword = keywordScores.sorted { $0.weight > $1.weight }.first?.keyword ?? "themes"
+        let reason = matchedCount > 2 ? "Theme match (\(matchedCount) keywords)" : "Theme: \(topKeyword)"
+
+        return (avgScore, confidence, reason)
+    }
+
+    /// Predict based on runtime preference
+    private func predictByRuntime(movie: Movie, attributeScores: [String: [Double]]) -> (score: Double, confidence: Double, reason: String)? {
+        guard let runtime = movie.runtime, runtime > 0 else { return nil }
+
+        // Categorize runtime into buckets
+        let runtimeKey: String
+        let runtimeLabel: String
+        if runtime < 90 {
+            runtimeKey = "runtime:short"
+            runtimeLabel = "Short film"
+        } else if runtime < 120 {
+            runtimeKey = "runtime:standard"
+            runtimeLabel = "Standard length"
+        } else if runtime < 150 {
+            runtimeKey = "runtime:long"
+            runtimeLabel = "Long film"
+        } else {
+            runtimeKey = "runtime:epic"
+            runtimeLabel = "Epic length"
+        }
+
+        guard let scores = attributeScores[runtimeKey], !scores.isEmpty else { return nil }
+
+        let avgScore = scores.reduce(0, +) / Double(scores.count)
+        let confidence = min(Double(scores.count) / 5.0, 0.7)
+
+        return (avgScore, confidence, runtimeLabel)
+    }
+
+    /// Predict based on country/language of origin
+    private func predictByOrigin(movie: Movie, attributeScores: [String: [Double]]) -> (score: Double, confidence: Double, reason: String)? {
+        var originScores: [(score: Double, label: String, weight: Double)] = []
+
+        // Check original language
+        if let lang = movie.originalLanguage {
+            let langKey = "lang:\(lang)"
+            if let scores = attributeScores[langKey], !scores.isEmpty {
+                let avg = scores.reduce(0, +) / Double(scores.count)
+                let langLabel = languageCodeToName(lang)
+                originScores.append((avg, langLabel, Double(scores.count) * 1.5)) // Language weighted higher
+            }
+        }
+
+        // Check production countries
+        if let countries = movie.productionCountries {
+            for country in countries {
+                let countryKey = "country:\(country)"
+                if let scores = attributeScores[countryKey], !scores.isEmpty {
+                    let avg = scores.reduce(0, +) / Double(scores.count)
+                    originScores.append((avg, countryCodeToName(country), Double(scores.count)))
+                }
+            }
+        }
+
+        guard !originScores.isEmpty else { return nil }
+
+        let totalWeight = originScores.reduce(0.0) { $0 + $1.weight }
+        let weightedSum = originScores.reduce(0.0) { $0 + ($1.score * $1.weight) }
+        let avgScore = weightedSum / totalWeight
+
+        let confidence = min(Double(originScores.count) / 3.0, 0.8)
+        let topMatch = originScores.sorted { $0.weight > $1.weight }.first?.label ?? "International"
+
+        return (avgScore, confidence, topMatch)
+    }
+
+    /// Predict based on mainstream vs indie preference (using popularity and vote count)
+    private func predictByPopularity(movie: Movie, attributeScores: [String: [Double]]) -> (score: Double, confidence: Double, reason: String)? {
+        guard let popularity = movie.popularity else { return nil }
+
+        // Categorize by popularity tier
+        let popKey: String
+        let popLabel: String
+        if popularity > 100 {
+            popKey = "popularity:blockbuster"
+            popLabel = "Blockbuster"
+        } else if popularity > 30 {
+            popKey = "popularity:mainstream"
+            popLabel = "Mainstream"
+        } else if popularity > 10 {
+            popKey = "popularity:moderate"
+            popLabel = "Moderate buzz"
+        } else {
+            popKey = "popularity:indie"
+            popLabel = "Under the radar"
+        }
+
+        guard let scores = attributeScores[popKey], !scores.isEmpty else { return nil }
+
+        let avgScore = scores.reduce(0, +) / Double(scores.count)
+        let confidence = min(Double(scores.count) / 5.0, 0.6)
+
+        return (avgScore, confidence, popLabel)
+    }
+
+    /// Predict using TMDb community ratings as a signal
+    private func predictByTMDbRating(movie: Movie, attributeScores: [String: [Double]]) -> (score: Double, confidence: Double, reason: String)? {
+        guard let voteAvg = movie.voteAverage, let voteCount = movie.voteCount,
+              voteCount > 50 else { return nil } // Need enough votes for meaningful signal
+
+        // Categorize by TMDb rating tier
+        let ratingKey: String
+        let ratingLabel: String
+        if voteAvg >= 8.0 {
+            ratingKey = "tmdb:excellent"
+            ratingLabel = "Highly rated"
+        } else if voteAvg >= 7.0 {
+            ratingKey = "tmdb:good"
+            ratingLabel = "Well received"
+        } else if voteAvg >= 6.0 {
+            ratingKey = "tmdb:average"
+            ratingLabel = "Mixed reviews"
+        } else {
+            ratingKey = "tmdb:poor"
+            ratingLabel = "Poorly rated"
+        }
+
+        // Check if user aligns with TMDb consensus
+        if let scores = attributeScores[ratingKey], !scores.isEmpty {
+            let avgScore = scores.reduce(0, +) / Double(scores.count)
+            let confidence = min(Double(scores.count) / 6.0, 0.5) // Lower confidence - this is secondary signal
+            return (avgScore, confidence, ratingLabel)
+        }
+
+        // Fallback: use TMDb rating directly but adjusted by user bias
+        if let userBiasScores = attributeScores["tmdb:bias"], !userBiasScores.isEmpty {
+            let userBias = userBiasScores.reduce(0, +) / Double(userBiasScores.count)
+            let adjustedScore = voteAvg + (userBias - 7.0) * 0.3 // Adjust by user's deviation from average
+            return (adjustedScore, 0.3, "TMDb \(String(format: "%.1f", voteAvg))")
+        }
+
+        return nil
+    }
+
+    /// Helper to convert language code to readable name
+    private func languageCodeToName(_ code: String) -> String {
+        switch code {
+        case "en": return "English"
+        case "ko": return "Korean"
+        case "ja": return "Japanese"
+        case "es": return "Spanish"
+        case "fr": return "French"
+        case "de": return "German"
+        case "it": return "Italian"
+        case "pt": return "Portuguese"
+        case "zh": return "Chinese"
+        case "hi": return "Hindi"
+        case "ru": return "Russian"
+        case "ar": return "Arabic"
+        case "th": return "Thai"
+        case "sv": return "Swedish"
+        case "da": return "Danish"
+        case "no": return "Norwegian"
+        case "fi": return "Finnish"
+        case "nl": return "Dutch"
+        case "pl": return "Polish"
+        case "tr": return "Turkish"
+        default: return code.uppercased()
+        }
+    }
+
+    /// Helper to convert country code to readable name
+    private func countryCodeToName(_ code: String) -> String {
+        switch code {
+        case "US": return "American"
+        case "GB": return "British"
+        case "KR": return "Korean"
+        case "JP": return "Japanese"
+        case "FR": return "French"
+        case "DE": return "German"
+        case "IT": return "Italian"
+        case "ES": return "Spanish"
+        case "CA": return "Canadian"
+        case "AU": return "Australian"
+        case "IN": return "Indian"
+        case "CN": return "Chinese"
+        case "HK": return "Hong Kong"
+        case "TW": return "Taiwanese"
+        case "MX": return "Mexican"
+        case "BR": return "Brazilian"
+        case "SE": return "Swedish"
+        case "DK": return "Danish"
+        case "NO": return "Norwegian"
+        case "NZ": return "New Zealand"
+        default: return code
+        }
+    }
+
     private func getCriticBasedPrediction(for movie: Movie) -> Double {
         // Use available critic scores to estimate a baseline
         var scores: [Double] = []
@@ -564,6 +814,66 @@ final class LinearPredictionEngine: PredictionEngine {
             else if age < 15 { attributeScores["age:modern", default: []].append(rating) }
             else if age < 30 { attributeScores["age:classic", default: []].append(rating) }
             else { attributeScores["age:vintage", default: []].append(rating) }
+        }
+
+        // Keywords/themes
+        if let keywords = movie.keywords {
+            for keyword in keywords {
+                attributeScores["keyword:\(keyword.lowercased())", default: []].append(rating)
+            }
+        }
+
+        // Runtime preference
+        if let runtime = movie.runtime, runtime > 0 {
+            if runtime < 90 {
+                attributeScores["runtime:short", default: []].append(rating)
+            } else if runtime < 120 {
+                attributeScores["runtime:standard", default: []].append(rating)
+            } else if runtime < 150 {
+                attributeScores["runtime:long", default: []].append(rating)
+            } else {
+                attributeScores["runtime:epic", default: []].append(rating)
+            }
+        }
+
+        // Language preference
+        if let lang = movie.originalLanguage {
+            attributeScores["lang:\(lang)", default: []].append(rating)
+        }
+
+        // Country preference
+        if let countries = movie.productionCountries {
+            for country in countries {
+                attributeScores["country:\(country)", default: []].append(rating)
+            }
+        }
+
+        // Popularity tier preference
+        if let popularity = movie.popularity {
+            if popularity > 100 {
+                attributeScores["popularity:blockbuster", default: []].append(rating)
+            } else if popularity > 30 {
+                attributeScores["popularity:mainstream", default: []].append(rating)
+            } else if popularity > 10 {
+                attributeScores["popularity:moderate", default: []].append(rating)
+            } else {
+                attributeScores["popularity:indie", default: []].append(rating)
+            }
+        }
+
+        // TMDb rating tier preference
+        if let voteAvg = movie.voteAverage, let voteCount = movie.voteCount, voteCount > 50 {
+            if voteAvg >= 8.0 {
+                attributeScores["tmdb:excellent", default: []].append(rating)
+            } else if voteAvg >= 7.0 {
+                attributeScores["tmdb:good", default: []].append(rating)
+            } else if voteAvg >= 6.0 {
+                attributeScores["tmdb:average", default: []].append(rating)
+            } else {
+                attributeScores["tmdb:poor", default: []].append(rating)
+            }
+            // Also track bias for fallback calculations
+            attributeScores["tmdb:bias", default: []].append(rating)
         }
     }
 

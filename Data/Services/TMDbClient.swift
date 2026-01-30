@@ -138,11 +138,91 @@ public struct CrewMember: Decodable, Sendable, Identifiable {
     private enum CodingKeys: String, CodingKey { case id, name, job; case profilePath = "profile_path" }
 }
 
-// Details & Person
+// Details & Person - Enhanced for prediction engine
 public struct TMDbMovieDetail: Decodable, Sendable {
     public let id: Int
     public let genres: [Genre]?
+    public let runtime: Int?
+    public let budget: Int?
+    public let revenue: Int?
+    public let voteAverage: Double?
+    public let voteCount: Int?
+    public let originalLanguage: String?
+    public let productionCountries: [ProductionCountry]?
+    public let spokenLanguages: [SpokenLanguage]?
+    public let status: String?
+    public let tagline: String?
+
     public struct Genre: Decodable, Sendable { let id: Int; let name: String }
+    public struct ProductionCountry: Decodable, Sendable {
+        let iso31661: String
+        let name: String
+        private enum CodingKeys: String, CodingKey {
+            case iso31661 = "iso_3166_1"
+            case name
+        }
+    }
+    public struct SpokenLanguage: Decodable, Sendable {
+        let iso6391: String
+        let name: String
+        private enum CodingKeys: String, CodingKey {
+            case iso6391 = "iso_639_1"
+            case name
+        }
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, genres, runtime, budget, revenue, status, tagline
+        case voteAverage = "vote_average"
+        case voteCount = "vote_count"
+        case originalLanguage = "original_language"
+        case productionCountries = "production_countries"
+        case spokenLanguages = "spoken_languages"
+    }
+}
+
+// TV Show Details - Enhanced
+public struct TMDbTVShowDetail: Decodable, Sendable {
+    public let id: Int
+    public let genres: [TMDbMovieDetail.Genre]?
+    public let episodeRunTime: [Int]?
+    public let voteAverage: Double?
+    public let voteCount: Int?
+    public let originalLanguage: String?
+    public let productionCountries: [TMDbMovieDetail.ProductionCountry]?
+    public let status: String?
+    public let numberOfSeasons: Int?
+    public let numberOfEpisodes: Int?
+    public let originCountry: [String]?
+
+    private enum CodingKeys: String, CodingKey {
+        case id, genres, status
+        case episodeRunTime = "episode_run_time"
+        case voteAverage = "vote_average"
+        case voteCount = "vote_count"
+        case originalLanguage = "original_language"
+        case productionCountries = "production_countries"
+        case numberOfSeasons = "number_of_seasons"
+        case numberOfEpisodes = "number_of_episodes"
+        case originCountry = "origin_country"
+    }
+}
+
+// Keywords response
+public struct KeywordsResponse: Decodable, Sendable {
+    public let id: Int?
+    public let keywords: [Keyword]?
+    public let results: [Keyword]? // TV shows use "results" instead of "keywords"
+
+    public struct Keyword: Decodable, Sendable {
+        public let id: Int
+        public let name: String
+    }
+
+    // Get all keywords regardless of response type
+    public var allKeywords: [Keyword] {
+        return keywords ?? results ?? []
+    }
 }
 public struct PersonDetail: Decodable, Sendable {
     public let id: Int
@@ -248,7 +328,32 @@ public actor TMDbClient {
     public func getDetails(id: Int, type: String) async throws -> TMDbMovieDetail {
         return try await request(path: "/\(type)/\(id)", items: [])
     }
-    
+
+    /// Get enhanced TV show details with prediction-relevant fields
+    public func getTVShowDetails(id: Int) async throws -> TMDbTVShowDetail {
+        return try await request(path: "/tv/\(id)", items: [])
+    }
+
+    /// Get keywords for a movie or TV show (used for content-based predictions)
+    public func getKeywords(id: Int, type: String) async throws -> [String] {
+        let response: KeywordsResponse = try await request(path: "/\(type)/\(id)/keywords", items: [])
+        return response.allKeywords.map { $0.name }
+    }
+
+    /// Fetch all prediction-relevant data in one call (for movies)
+    public func getFullMovieDetails(id: Int) async throws -> (details: TMDbMovieDetail, keywords: [String]) {
+        async let details = getDetails(id: id, type: "movie")
+        async let keywords = getKeywords(id: id, type: "movie")
+        return try await (details, keywords)
+    }
+
+    /// Fetch all prediction-relevant data in one call (for TV shows)
+    public func getFullTVDetails(id: Int) async throws -> (details: TMDbTVShowDetail, keywords: [String]) {
+        async let details = getTVShowDetails(id: id)
+        async let keywords = getKeywords(id: id, type: "tv")
+        return try await (details, keywords)
+    }
+
     public func getTVDetails(id: Int) async throws -> TMDbTVDetail {
         return try await request(path: "/tv/\(id)", items: [])
     }

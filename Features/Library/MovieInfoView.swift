@@ -221,12 +221,13 @@ struct MovieInfoView: View {
                 async let detailsTask: Void = loadRichDetails()
                 async let creditsTask: Void = loadCredits()
                 async let providersTask: Void = loadProviders()
+                async let enhancedDataTask: Void = loadEnhancedPredictionData()
 
                 if mediaType == "tv" {
                     async let seasonsTask: Void = loadSeasons()
-                    _ = await (detailsTask, creditsTask, providersTask, seasonsTask)
+                    _ = await (detailsTask, creditsTask, providersTask, seasonsTask, enhancedDataTask)
                 } else {
-                    _ = await (detailsTask, creditsTask, providersTask)
+                    _ = await (detailsTask, creditsTask, providersTask, enhancedDataTask)
                 }
 
                 if let ratings = await ratingsTask {
@@ -290,6 +291,60 @@ struct MovieInfoView: View {
                     try? context.save()
                 }
             }
+        }
+    }
+
+    /// Load enhanced TMDb data for better predictions (keywords, runtime, origin, etc.)
+    private func loadEnhancedPredictionData() async {
+        guard let client = try? TMDbClient(), let m = movie, let tmdbID = m.tmdbID else { return }
+
+        do {
+            if mediaType == "movie" {
+                // Fetch full movie details and keywords in parallel
+                let (details, keywords) = try await client.getFullMovieDetails(id: tmdbID)
+
+                await MainActor.run {
+                    // Populate enhanced prediction fields
+                    m.runtime = details.runtime
+                    m.budget = details.budget
+                    m.voteAverage = details.voteAverage
+                    m.voteCount = details.voteCount
+                    m.originalLanguage = details.originalLanguage
+                    m.productionCountries = details.productionCountries?.map { $0.iso31661 }
+                    m.keywords = keywords
+
+                    try? context.save()
+
+                    // Re-calculate prediction with enhanced data
+                    let engine = LinearPredictionEngine()
+                    self.prediction = engine.predict(for: m, in: context, userId: userId)
+
+                    print("✅ Loaded enhanced prediction data for \(m.title): \(keywords.count) keywords, runtime=\(details.runtime ?? 0)min, lang=\(details.originalLanguage ?? "?")")
+                }
+            } else if mediaType == "tv" {
+                // Fetch full TV show details and keywords in parallel
+                let (details, keywords) = try await client.getFullTVDetails(id: tmdbID)
+
+                await MainActor.run {
+                    // Populate enhanced prediction fields
+                    m.runtime = details.episodeRunTime?.first // Average episode runtime
+                    m.voteAverage = details.voteAverage
+                    m.voteCount = details.voteCount
+                    m.originalLanguage = details.originalLanguage
+                    m.productionCountries = details.originCountry ?? details.productionCountries?.map { $0.iso31661 }
+                    m.keywords = keywords
+
+                    try? context.save()
+
+                    // Re-calculate prediction with enhanced data
+                    let engine = LinearPredictionEngine()
+                    self.prediction = engine.predict(for: m, in: context, userId: userId)
+
+                    print("✅ Loaded enhanced prediction data for TV \(m.title): \(keywords.count) keywords, lang=\(details.originalLanguage ?? "?")")
+                }
+            }
+        } catch {
+            print("⚠️ Could not fetch enhanced prediction data: \(error)")
         }
     }
     
