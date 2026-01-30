@@ -1,5 +1,5 @@
 // BookInfoView.swift
-// UPDATED - With Reading Tracker
+// UPDATED - With 3-Button Reading Flow
 
 import SwiftUI
 import SwiftData
@@ -7,23 +7,35 @@ import SwiftData
 struct BookInfoView: View {
     @Environment(\.modelContext) private var context
     let item: TMDbItem
-    
+
     @State private var movie: Movie? = nil
     @State private var showLogSheet = false
     @State private var showRankingSheet = false
+    @State private var showStartedSheet = false
     @State private var showSuccess = false
+    @State private var successMessage = "Saved to Library"
     @State private var userId = "guest"
     @Query private var allScores: [Score]
     @Query private var allLogs: [LogEntry]
-    
+
     var hasRanked: Bool {
         guard let m = movie else { return false }
         return allScores.contains(where: { $0.movieID == m.id && $0.ownerId == userId })
     }
-    
+
     var myLog: LogEntry? {
         guard let m = movie else { return nil }
         return allLogs.first(where: { $0.movie?.id == m.id && $0.ownerId == userId })
+    }
+
+    var isCurrentlyReading: Bool {
+        guard let log = myLog else { return false }
+        return log.startedReading != nil && log.finishedReading == nil
+    }
+
+    var hasFinishedReading: Bool {
+        guard let log = myLog else { return false }
+        return log.finishedReading != nil
     }
     
     var body: some View {
@@ -84,38 +96,96 @@ struct BookInfoView: View {
                         .padding(.horizontal)
                 }
                 
-                // Action Buttons
-                HStack {
-                    if hasRanked {
-                        Button { handleReRank() } label: {
-                            Text("Re-Rank")
+                // Action Buttons - 3 Button Flow
+                VStack(spacing: 12) {
+                    // Row 1: Started Reading / Currently Reading status
+                    if isCurrentlyReading {
+                        // Currently reading - show status and finish button
+                        HStack(spacing: 12) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Currently Reading")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                if let start = myLog?.startedReading {
+                                    Text("Started \(start.formatted(date: .abbreviated, time: .omitted))")
+                                        .font(.caption2)
+                                        .foregroundStyle(.green)
+                                }
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding()
+                            .background(Color.green.opacity(0.1))
+                            .cornerRadius(12)
+
+                            Button { showLogSheet = true } label: {
+                                HStack {
+                                    Image(systemName: "checkmark.circle.fill")
+                                    Text("Finished")
+                                }
                                 .fontWeight(.bold)
                                 .frame(maxWidth: .infinity)
                                 .padding()
-                                .background(Color.orange)
+                                .background(Color.blue)
                                 .foregroundColor(.white)
                                 .cornerRadius(12)
+                            }
+                        }
+                    } else if hasFinishedReading || hasRanked {
+                        // Already finished - show re-rank option
+                        Button { handleReRank() } label: {
+                            HStack {
+                                Image(systemName: "arrow.triangle.2.circlepath")
+                                Text("Re-Rank This Book")
+                            }
+                            .fontWeight(.bold)
+                            .frame(maxWidth: .infinity)
+                            .padding()
+                            .background(Color.orange)
+                            .foregroundColor(.white)
+                            .cornerRadius(12)
                         }
                     } else {
-                        Button { showLogSheet = true } label: {
-                            Text("Mark as Read")
+                        // Not started yet - show all 3 options
+                        HStack(spacing: 12) {
+                            Button { showStartedSheet = true } label: {
+                                HStack {
+                                    Image(systemName: "book.fill")
+                                    Text("Started")
+                                }
                                 .fontWeight(.bold)
                                 .frame(maxWidth: .infinity)
                                 .padding()
-                                .background(Color.accentColor)
+                                .background(Color.green)
                                 .foregroundColor(.white)
                                 .cornerRadius(12)
+                            }
+
+                            Button { showLogSheet = true } label: {
+                                HStack {
+                                    Image(systemName: "checkmark.circle.fill")
+                                    Text("Finished")
+                                }
+                                .fontWeight(.bold)
+                                .frame(maxWidth: .infinity)
+                                .padding()
+                                .background(Color.blue)
+                                .foregroundColor(.white)
+                                .cornerRadius(12)
+                            }
                         }
-                    }
-                    
-                    Button { saveBook(as: .watchlist) } label: {
-                        Text("Want to Read")
+
+                        Button { saveBook(as: .watchlist) } label: {
+                            HStack {
+                                Image(systemName: "bookmark.fill")
+                                Text("Want to Read")
+                            }
                             .fontWeight(.bold)
                             .frame(maxWidth: .infinity)
                             .padding()
                             .background(Color.gray.opacity(0.15))
                             .foregroundColor(.primary)
                             .cornerRadius(12)
+                        }
                     }
                 }
                 .padding(.horizontal)
@@ -137,9 +207,17 @@ struct BookInfoView: View {
             }
         }
         .navigationTitle("Book Details")
+        .sheet(isPresented: $showStartedSheet) {
+            if let m = movie {
+                StartedReadingSheet(movie: m, userId: userId, onSave: { date in
+                    startReading(on: date)
+                    showStartedSheet = false
+                })
+            }
+        }
         .sheet(isPresented: $showLogSheet) {
             if let m = movie {
-                LogSheet(movie: m, existingLog: nil, showRanking: $showRankingSheet)
+                LogSheet(movie: m, existingLog: myLog, showRanking: $showRankingSheet)
             }
         }
         .sheet(isPresented: $showRankingSheet) {
@@ -158,7 +236,7 @@ struct BookInfoView: View {
         }
         .overlay(alignment: .top) {
             if showSuccess {
-                SuccessToast(text: "Saved to Library")
+                SuccessToast(text: successMessage)
             }
         }
     }
@@ -206,11 +284,126 @@ struct BookInfoView: View {
         } else {
             context.insert(UserItem(movie: m, state: state, ownerId: userId))
         }
-        
+
         try? context.save()
+        successMessage = "Added to Want to Read"
         showSuccess = true
         DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
             showSuccess = false
+        }
+    }
+
+    private func startReading(on date: Date) {
+        guard let m = movie else { return }
+
+        // Check if log already exists, update it; otherwise create new
+        if let existingLog = myLog {
+            existingLog.startedReading = date
+            existingLog.finishedReading = nil  // Reset finished if re-starting
+        } else {
+            let newLog = LogEntry(
+                createdAt: Date(),
+                watchedOn: nil,
+                movie: m,
+                ownerId: userId,
+                startedReading: date,
+                finishedReading: nil
+            )
+            context.insert(newLog)
+        }
+
+        try? context.save()
+        successMessage = "Started Reading!"
+        showSuccess = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+            showSuccess = false
+        }
+    }
+}
+
+// MARK: - Started Reading Sheet with Calendar
+struct StartedReadingSheet: View {
+    let movie: Movie
+    let userId: String
+    let onSave: (Date) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var selectedDate = Date()
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 20) {
+                // Book info header
+                HStack(spacing: 12) {
+                    if let path = movie.posterPath, let url = URL(string: path) {
+                        AsyncImage(url: url) { phase in
+                            if let img = phase.image {
+                                img.resizable().scaledToFit()
+                            } else {
+                                Color.gray.opacity(0.2)
+                            }
+                        }
+                        .frame(width: 60, height: 90)
+                        .cornerRadius(6)
+                    }
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(movie.title)
+                            .font(.headline)
+                            .lineLimit(2)
+                        if let author = movie.authors?.first {
+                            Text("by \(author)")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+
+                    Spacer()
+                }
+                .padding()
+                .background(Color(.systemGray6))
+                .cornerRadius(12)
+
+                // Date picker
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("When did you start reading?")
+                        .font(.headline)
+
+                    DatePicker(
+                        "Start Date",
+                        selection: $selectedDate,
+                        in: ...Date(),
+                        displayedComponents: .date
+                    )
+                    .datePickerStyle(.graphical)
+                    .padding()
+                    .background(Color(.systemGray6))
+                    .cornerRadius(12)
+                }
+
+                Spacer()
+
+                // Save button
+                Button {
+                    onSave(selectedDate)
+                } label: {
+                    Text("Start Reading")
+                        .fontWeight(.bold)
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(Color.green)
+                        .foregroundColor(.white)
+                        .cornerRadius(12)
+                }
+            }
+            .padding()
+            .navigationTitle("Started Reading")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+            }
         }
     }
 }
