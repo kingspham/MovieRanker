@@ -17,7 +17,7 @@ struct MovieInfoView: View {
     @Environment(\.modelContext) private var context
     let tmdb: TMDbItem
     var mediaType: String = "movie"
-    
+
     @State private var details: ShowDetails?
     @State private var cast: [CastMember] = []
     @State private var crew: [CrewMember] = []
@@ -25,27 +25,33 @@ struct MovieInfoView: View {
     @State private var prediction: PredictionExplanation?
     @State private var movie: Movie? = nil
     @State private var tvSeasons: [TMDbTVDetail.TMDbSeason] = []
-    
+
     @State private var externalRatings: ExternalRatings?
     @State private var myLog: LogEntry?
     @State private var myScore: Score?
     @State private var isInWatchlist = false
-    
+
     @State private var showSuccessMessage = false
     @State private var successMessageText = "Saved"
     @State private var userId: String = "guest"
+
+    // Loading states for smooth UX
+    @State private var isLoadingUserData = true
+    @State private var isLoadingDetails = true
     
     enum ActiveSheet: Identifiable, Equatable {
         case browser(URL)
         case share(PlatformImage)
         case log(Movie, LogEntry?)
         case ranking(Movie)
+        case showtimes(String) // Movie title for showtimes lookup
         var id: String {
             switch self {
             case .browser: return "browser"
             case .share: return "share"
             case .log: return "log"
             case .ranking: return "ranking"
+            case .showtimes: return "showtimes"
             }
         }
         static func == (lhs: ActiveSheet, rhs: ActiveSheet) -> Bool {
@@ -71,9 +77,19 @@ struct MovieInfoView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
                 HeroHeaderView(tmdb: tmdb, movie: movie, myLog: myLog, externalRatings: externalRatings)
-                
-                ScoreOrPredictionView(myScoreValue: myScoreValue, prediction: prediction, removeRating: removeRating)
-                
+
+                // Show loading indicator while user data loads, then show content
+                if isLoadingUserData {
+                    HStack {
+                        Spacer()
+                        ProgressView()
+                            .padding()
+                        Spacer()
+                    }
+                } else {
+                    ScoreOrPredictionView(myScoreValue: myScoreValue, prediction: prediction, removeRating: removeRating)
+                }
+
                 ActionsRowView(
                     hasRanked: hasRanked,
                     isInWatchlist: isInWatchlist,
@@ -98,7 +114,7 @@ struct MovieInfoView: View {
                 // Find Movie Times button for movies in theaters
                 if isInTheaters {
                     Button {
-                        openMovieTimes()
+                        activeSheet = .showtimes(tmdb.displayTitle)
                     } label: {
                         HStack {
                             Image(systemName: "ticket.fill")
@@ -165,6 +181,7 @@ struct MovieInfoView: View {
                     set: { if $0 { activeSheet = .ranking(m) } }
                 ))
             case .ranking(let m): RankingSheet(newMovie: m)
+            case .showtimes(let title): ShowtimesSheet(movieTitle: title)
             }
         }
         .alert("Create List", isPresented: $showCreateListAlert) {
@@ -181,15 +198,13 @@ struct MovieInfoView: View {
 
             guard let m = movie else { return }
 
-            // Load user data first (fast, local only)
+            // Load user data first (fast, local only) then clear loading state
             await loadUserData()
+            isLoadingUserData = false
 
             // Calculate prediction (must stay on MainActor for SwiftData context)
-            Task {
-                let engine = LinearPredictionEngine()
-                let pred = engine.predict(for: m, in: context, userId: userId)
-                self.prediction = pred
-            }
+            let engine = LinearPredictionEngine()
+            self.prediction = engine.predict(for: m, in: context, userId: userId)
 
             if m.genreIDs.isEmpty { Task { await selfHealGenres(for: m) } }
 
@@ -217,6 +232,8 @@ struct MovieInfoView: View {
                 if let ratings = await ratingsTask {
                     await MainActor.run { self.externalRatings = ratings }
                 }
+
+                await MainActor.run { isLoadingDetails = false }
             }
         }
         .onChange(of: activeSheet) { _, newValue in
@@ -778,7 +795,7 @@ struct ExternalRatingBadge: View {
     let source: String
     let score: String
     let color: Color
-    
+
     var body: some View {
         HStack(spacing: 4) {
             Text(source)
@@ -791,3 +808,269 @@ struct ExternalRatingBadge: View {
         }
     }
 }
+
+// MARK: - Showtimes Sheet with Location
+#if os(iOS)
+import CoreLocation
+
+struct ShowtimesSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let movieTitle: String
+
+    @StateObject private var locationManager = LocationManager()
+    @State private var isLoading = true
+    @State private var locationStatus: String = "Checking location..."
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 20) {
+                // Movie Header
+                VStack(spacing: 8) {
+                    Image(systemName: "ticket.fill")
+                        .font(.system(size: 50))
+                        .foregroundStyle(.orange)
+
+                    Text(movieTitle)
+                        .font(.title2)
+                        .fontWeight(.bold)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal)
+                }
+                .padding(.top, 20)
+
+                Divider()
+
+                // Location Status
+                VStack(spacing: 12) {
+                    if locationManager.authorizationStatus == .notDetermined {
+                        VStack(spacing: 16) {
+                            Image(systemName: "location.circle")
+                                .font(.system(size: 40))
+                                .foregroundStyle(.blue)
+
+                            Text("Location Required")
+                                .font(.headline)
+
+                            Text("To find nearby theaters and showtimes, we need your location.")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                                .multilineTextAlignment(.center)
+                                .padding(.horizontal)
+
+                            Button {
+                                locationManager.requestPermission()
+                            } label: {
+                                Text("Enable Location")
+                                    .fontWeight(.semibold)
+                                    .frame(maxWidth: .infinity)
+                                    .padding()
+                                    .background(Color.blue)
+                                    .foregroundColor(.white)
+                                    .cornerRadius(12)
+                            }
+                            .padding(.horizontal, 40)
+                        }
+                    } else if locationManager.authorizationStatus == .denied || locationManager.authorizationStatus == .restricted {
+                        VStack(spacing: 16) {
+                            Image(systemName: "location.slash")
+                                .font(.system(size: 40))
+                                .foregroundStyle(.red)
+
+                            Text("Location Disabled")
+                                .font(.headline)
+
+                            Text("Please enable location access in Settings to find nearby theaters.")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                                .multilineTextAlignment(.center)
+                                .padding(.horizontal)
+
+                            Button {
+                                if let url = URL(string: UIApplication.openSettingsURLString) {
+                                    UIApplication.shared.open(url)
+                                }
+                            } label: {
+                                Text("Open Settings")
+                                    .fontWeight(.semibold)
+                                    .frame(maxWidth: .infinity)
+                                    .padding()
+                                    .background(Color.gray.opacity(0.2))
+                                    .foregroundColor(.primary)
+                                    .cornerRadius(12)
+                            }
+                            .padding(.horizontal, 40)
+
+                            Button {
+                                openGoogleSearch()
+                            } label: {
+                                Text("Search Without Location")
+                                    .font(.subheadline)
+                                    .foregroundStyle(.blue)
+                            }
+                        }
+                    } else if let location = locationManager.currentLocation {
+                        // Location available - show theaters
+                        VStack(spacing: 16) {
+                            HStack {
+                                Image(systemName: "location.fill")
+                                    .foregroundStyle(.green)
+                                Text("Location found")
+                                    .foregroundStyle(.secondary)
+                            }
+                            .font(.caption)
+
+                            // Theater options
+                            VStack(spacing: 12) {
+                                TheaterLinkButton(
+                                    title: "Fandango",
+                                    icon: "ticket",
+                                    color: .orange,
+                                    url: fandangoURL(location: location)
+                                )
+
+                                TheaterLinkButton(
+                                    title: "AMC Theatres",
+                                    icon: "film",
+                                    color: .red,
+                                    url: amcURL()
+                                )
+
+                                TheaterLinkButton(
+                                    title: "Google Showtimes",
+                                    icon: "magnifyingglass",
+                                    color: .blue,
+                                    url: googleShowtimesURL(location: location)
+                                )
+                            }
+                            .padding(.horizontal)
+                        }
+                    } else {
+                        // Loading location
+                        VStack(spacing: 12) {
+                            ProgressView()
+                            Text("Finding your location...")
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                .padding()
+
+                Spacer()
+            }
+            .navigationTitle("Showtimes")
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Close") { dismiss() }
+                }
+            }
+        }
+    }
+
+    private func fandangoURL(location: CLLocation) -> URL? {
+        let encoded = movieTitle.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
+        return URL(string: "https://www.fandango.com/search?q=\(encoded)")
+    }
+
+    private func amcURL() -> URL? {
+        let encoded = movieTitle.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
+        return URL(string: "https://www.amctheatres.com/movies?query=\(encoded)")
+    }
+
+    private func googleShowtimesURL(location: CLLocation) -> URL? {
+        let encoded = "\(movieTitle) showtimes near me".addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
+        return URL(string: "https://www.google.com/search?q=\(encoded)")
+    }
+
+    private func openGoogleSearch() {
+        let encoded = "\(movieTitle) showtimes".addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
+        if let url = URL(string: "https://www.google.com/search?q=\(encoded)") {
+            UIApplication.shared.open(url)
+        }
+    }
+}
+
+struct TheaterLinkButton: View {
+    let title: String
+    let icon: String
+    let color: Color
+    let url: URL?
+
+    var body: some View {
+        Button {
+            if let url = url {
+                UIApplication.shared.open(url)
+            }
+        } label: {
+            HStack {
+                Image(systemName: icon)
+                    .font(.title3)
+                    .foregroundStyle(color)
+                    .frame(width: 30)
+
+                Text(title)
+                    .fontWeight(.medium)
+
+                Spacer()
+
+                Image(systemName: "arrow.up.right")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .padding()
+            .background(Color.gray.opacity(0.1))
+            .cornerRadius(12)
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
+    private let manager = CLLocationManager()
+
+    @Published var authorizationStatus: CLAuthorizationStatus = .notDetermined
+    @Published var currentLocation: CLLocation?
+
+    override init() {
+        super.init()
+        manager.delegate = self
+        manager.desiredAccuracy = kCLLocationAccuracyKilometer
+        authorizationStatus = manager.authorizationStatus
+
+        // If already authorized, start getting location
+        if authorizationStatus == .authorizedWhenInUse || authorizationStatus == .authorizedAlways {
+            manager.requestLocation()
+        }
+    }
+
+    func requestPermission() {
+        manager.requestWhenInUseAuthorization()
+    }
+
+    func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+        authorizationStatus = manager.authorizationStatus
+        if authorizationStatus == .authorizedWhenInUse || authorizationStatus == .authorizedAlways {
+            manager.requestLocation()
+        }
+    }
+
+    func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
+        currentLocation = locations.first
+    }
+
+    func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
+        print("Location error: \(error.localizedDescription)")
+    }
+}
+#else
+// macOS stub
+struct ShowtimesSheet: View {
+    let movieTitle: String
+
+    var body: some View {
+        Text("Showtimes not available on macOS")
+    }
+}
+#endif

@@ -73,7 +73,7 @@ final class LinearPredictionEngine: PredictionEngine {
         let hasLogs = !userLogs.isEmpty
 
         if !hasScores && !hasLogs {
-            // No data - use critic scores if available
+            // No data - use critic scores if available with variety
             let criticScore = getCriticBasedPrediction(for: movie)
             return PredictionExplanation(
                 score: criticScore,
@@ -84,32 +84,39 @@ final class LinearPredictionEngine: PredictionEngine {
         }
 
         // Build attribute map from user's ratings
-        var attributeScores: [String: [Double]] = [:]  // Simplified: just store scores
+        var attributeScores: [String: [Double]] = [:]
 
-        // Process explicit scores
+        // Process explicit scores - include all media types for broader learning
         let sameTypeScores = userScores.filter { score in
             guard let m = fetchMovie(id: score.movieID, context: context) else { return false }
             return m.mediaType == movie.mediaType
         }
 
-        for score in sameTypeScores {
-            guard let rankedMovie = fetchMovie(id: score.movieID, context: context) else { continue }
-            let rating = Double(score.display100) / 10.0
-            addMovieAttributes(movie: rankedMovie, rating: rating, to: &attributeScores)
+        // Also get cross-type scores for genre learning
+        let allUserScoresWithMovies = userScores.compactMap { score -> (Score, Movie)? in
+            guard let m = fetchMovie(id: score.movieID, context: context) else { return nil }
+            return (score, m)
         }
 
-        // Also track what the user has watched but not rated (implicit positive signal)
-        let scoredMovieIDs = Set(sameTypeScores.compactMap { fetchMovie(id: $0.movieID, context: context)?.id })
+        for (score, rankedMovie) in allUserScoresWithMovies {
+            let rating = Double(score.display100) / 10.0
+            // Weight same-type ratings higher
+            let weight = rankedMovie.mediaType == movie.mediaType ? 1.0 : 0.5
+            addMovieAttributesWeighted(movie: rankedMovie, rating: rating, weight: weight, to: &attributeScores)
+        }
+
+        // Track watched but not rated (implicit positive signal)
+        let scoredMovieIDs = Set(userScores.map { $0.movieID })
 
         for log in userLogs {
             guard let watchedMovie = log.movie,
-                  watchedMovie.mediaType == movie.mediaType,
                   !scoredMovieIDs.contains(watchedMovie.id) else { continue }
             // Implicit: watching = mild interest (6.5/10)
-            addMovieAttributes(movie: watchedMovie, rating: 6.5, to: &attributeScores)
+            let weight = watchedMovie.mediaType == movie.mediaType ? 0.7 : 0.3
+            addMovieAttributesWeighted(movie: watchedMovie, rating: 6.5, weight: weight, to: &attributeScores)
         }
 
-        if sameTypeScores.isEmpty {
+        if sameTypeScores.isEmpty && userScores.isEmpty {
             let criticScore = getCriticBasedPrediction(for: movie)
             return PredictionExplanation(
                 score: criticScore,
@@ -119,69 +126,99 @@ final class LinearPredictionEngine: PredictionEngine {
             )
         }
 
-        // Calculate prediction using MULTIPLE methods and combine them
+        // Calculate prediction using MULTIPLE methods with stronger differentiation
         var predictions: [(score: Double, weight: Double, reason: String)] = []
 
-        // METHOD 1: Genre-based prediction (strongest signal)
+        // METHOD 1: Genre-based prediction (STRONGEST signal - doubled weight)
         let genrePrediction = predictByGenres(movie: movie, attributeScores: attributeScores)
         if let gp = genrePrediction {
-            predictions.append((gp.score, gp.confidence * 3.0, gp.reason))
+            predictions.append((gp.score, gp.confidence * 5.0, gp.reason))
         }
 
         // METHOD 2: Talent-based prediction (directors, actors)
         let talentPrediction = predictByTalent(movie: movie, attributeScores: attributeScores)
         if let tp = talentPrediction {
-            predictions.append((tp.score, tp.confidence * 2.5, tp.reason))
+            predictions.append((tp.score, tp.confidence * 4.0, tp.reason))
         }
 
         // METHOD 3: Era/decade preference
         let eraPrediction = predictByEra(movie: movie, attributeScores: attributeScores)
         if let ep = eraPrediction {
-            predictions.append((ep.score, ep.confidence * 1.0, ep.reason))
+            predictions.append((ep.score, ep.confidence * 1.5, ep.reason))
         }
 
-        // METHOD 4: Critic score adjustment (use as anchor)
-        let criticScore = getCriticBasedPrediction(for: movie)
-        let userAvgScore = sameTypeScores.map { Double($0.display100) / 10.0 }.reduce(0, +) / Double(sameTypeScores.count)
-        let userBias = userAvgScore - 6.5  // How much does user deviate from "average"?
-        let adjustedCriticScore = criticScore + (userBias * 0.5)
-        predictions.append((adjustedCriticScore, 0.5, "Critic consensus"))
+        // METHOD 4: User's average rating bias (personalized baseline)
+        let relevantScores = sameTypeScores.isEmpty ? userScores : sameTypeScores
+        if !relevantScores.isEmpty {
+            let scores = relevantScores.map { Double($0.display100) / 10.0 }
+            let userAvg = scores.reduce(0, +) / Double(scores.count)
+            let userStdDev = sqrt(scores.map { pow($0 - userAvg, 2) }.reduce(0, +) / Double(scores.count))
 
-        // Combine all predictions
+            // User baseline is their average with some variance consideration
+            let baselineScore = userAvg + (userStdDev > 1.0 ? 0.0 : 0.5) // Harsh raters get slight boost
+            predictions.append((baselineScore, 1.0, "Your rating style"))
+        }
+
+        // METHOD 5: Critic score (lower weight - user prefs matter more)
+        let criticScore = getCriticBasedPrediction(for: movie)
+        if criticScore != 6.0 { // Only add if we have real critic data
+            predictions.append((criticScore, 0.8, "Critic consensus"))
+        }
+
+        // Combine predictions with emphasis on STRONGEST signals
         var finalScore: Double
         var topReasons: [String] = []
-        var debugInfo = "Data: \(sameTypeScores.count) rated"
+        var debugInfo = "Data: \(relevantScores.count) rated"
 
         if predictions.isEmpty {
-            finalScore = 5.0
-            topReasons = ["Not enough data"]
+            // Fallback: use user's average or neutral
+            let userAvg = relevantScores.isEmpty ? 6.0 : relevantScores.map { Double($0.display100) / 10.0 }.reduce(0, +) / Double(relevantScores.count)
+            finalScore = userAvg
+            topReasons = ["Based on your typical ratings"]
         } else {
-            // Sort by weight
+            // Sort by weight - strongest signals first
             let sortedPredictions = predictions.sorted { $0.weight > $1.weight }
 
-            // Weight-averaged combination
-            let totalWeight = predictions.reduce(0) { $0 + $1.weight }
-            let weightedSum = predictions.reduce(0) { $0 + ($1.score * $1.weight) }
+            // Use weighted average but with exponential emphasis on top predictions
+            var totalWeight = 0.0
+            var weightedSum = 0.0
+
+            for (idx, pred) in sortedPredictions.enumerated() {
+                // Top predictions get bonus weight
+                let positionBoost = idx < 2 ? 1.5 : 1.0
+                let effectiveWeight = pred.weight * positionBoost
+                weightedSum += pred.score * effectiveWeight
+                totalWeight += effectiveWeight
+            }
+
             finalScore = weightedSum / totalWeight
 
-            // But also allow STRONG signals to pull the score more extremely
-            // If a genre/talent match is very positive or negative, amplify it
-            if let strongest = sortedPredictions.first, strongest.weight > 2.0 {
+            // AMPLIFY strong signals - if top prediction deviates significantly, follow it more
+            if let strongest = sortedPredictions.first, strongest.weight >= 3.0 {
                 let deviation = strongest.score - finalScore
-                // Amplify strong signals
-                if abs(deviation) > 1.0 {
-                    finalScore += deviation * 0.3
+                // Strong genre/talent matches should pull score more aggressively
+                finalScore += deviation * 0.5
+            }
+
+            // Add variety based on prediction spread
+            let predScores = sortedPredictions.map { $0.score }
+            let spread = (predScores.max() ?? 6.0) - (predScores.min() ?? 6.0)
+            if spread > 2.0 {
+                // High disagreement - lean toward strongest signal more
+                if let strongest = sortedPredictions.first {
+                    finalScore = finalScore * 0.6 + strongest.score * 0.4
                 }
             }
 
             topReasons = sortedPredictions.prefix(3).map { $0.reason }
-            debugInfo += " | Predictions: \(sortedPredictions.map { "\($0.reason): \(String(format: "%.1f", $0.score))" }.joined(separator: ", "))"
+            debugInfo += " | Top: \(sortedPredictions.first?.reason ?? "none"): \(String(format: "%.1f", sortedPredictions.first?.score ?? 0))"
         }
 
-        // Calculate confidence
-        let confidence = min(Double(sameTypeScores.count) / 10.0, 0.9)
+        // Calculate confidence based on data quality
+        let dataPoints = relevantScores.count + (genrePrediction != nil ? 1 : 0) + (talentPrediction != nil ? 1 : 0)
+        let confidence = min(Double(dataPoints) / 8.0, 0.9)
 
-        // Allow more extreme scores - only clamp to 1-10 range
+        // Clamp to valid range
         finalScore = min(max(finalScore, 1.0), 10.0)
 
         return PredictionExplanation(
@@ -190,6 +227,20 @@ final class LinearPredictionEngine: PredictionEngine {
             reasons: topReasons,
             debugInfo: debugInfo
         )
+    }
+
+    /// Add movie attributes with custom weight
+    private func addMovieAttributesWeighted(
+        movie: Movie,
+        rating: Double,
+        weight: Double,
+        to attributeScores: inout [String: [Double]]
+    ) {
+        // Apply weight by adding multiple copies (simple approximation)
+        let copies = max(1, Int(weight * 2))
+        for _ in 0..<copies {
+            addMovieAttributes(movie: movie, rating: rating, to: &attributeScores)
+        }
     }
 
     // MARK: - Batch Prediction Helpers
@@ -309,19 +360,23 @@ final class LinearPredictionEngine: PredictionEngine {
     // MARK: - Prediction Methods
 
     private func predictByGenres(movie: Movie, attributeScores: [String: [Double]]) -> (score: Double, confidence: Double, reason: String)? {
-        var genreScores: [Double] = []
+        var genreScores: [(score: Double, weight: Double)] = []
         var matchedGenres: [String] = []
 
         for genreID in movie.genreIDs {
             let key = "genre:\(genreID)"
             if let scores = attributeScores[key], !scores.isEmpty {
                 let avg = scores.reduce(0, +) / Double(scores.count)
-                genreScores.append(avg)
+                // Calculate variance to understand consistency
+                let variance = scores.map { pow($0 - avg, 2) }.reduce(0, +) / Double(scores.count)
+                // Lower variance = more consistent = higher weight
+                let consistencyWeight = variance < 1.0 ? 1.5 : 1.0
+                genreScores.append((avg, consistencyWeight * Double(scores.count)))
                 matchedGenres.append(genreIDToString(genreID))
             }
         }
 
-        // Also check genre combos
+        // Also check genre combos (STRONG signal)
         if movie.genreIDs.count >= 2 {
             let sorted = movie.genreIDs.sorted()
             for i in 0..<sorted.count {
@@ -329,9 +384,8 @@ final class LinearPredictionEngine: PredictionEngine {
                     let key = "combo:\(sorted[i])-\(sorted[j])"
                     if let scores = attributeScores[key], !scores.isEmpty {
                         let avg = scores.reduce(0, +) / Double(scores.count)
-                        // Combo matches are strong signals - weight them more
-                        genreScores.append(avg)
-                        genreScores.append(avg)  // Double weight for combos
+                        // Combo matches are VERY strong signals - triple weight
+                        genreScores.append((avg, 3.0 * Double(scores.count)))
                     }
                 }
             }
@@ -339,9 +393,26 @@ final class LinearPredictionEngine: PredictionEngine {
 
         guard !genreScores.isEmpty else { return nil }
 
-        let avgScore = genreScores.reduce(0, +) / Double(genreScores.count)
-        let confidence = min(Double(genreScores.count) / 5.0, 1.0)
-        let reason = matchedGenres.isEmpty ? "Genre match" : matchedGenres.prefix(2).joined(separator: ", ")
+        // Weighted average by sample count and consistency
+        let totalWeight = genreScores.reduce(0.0) { $0 + $1.weight }
+        let weightedSum = genreScores.reduce(0.0) { $0 + ($1.score * $1.weight) }
+        var avgScore = weightedSum / totalWeight
+
+        // Boost extreme scores - if user loves/hates a genre, lean into it
+        let maxGenreScore = genreScores.map { $0.score }.max() ?? avgScore
+        let minGenreScore = genreScores.map { $0.score }.min() ?? avgScore
+
+        if maxGenreScore > 8.0 && maxGenreScore - avgScore > 1.0 {
+            // Strong positive signal - boost toward max
+            avgScore = avgScore * 0.6 + maxGenreScore * 0.4
+        } else if minGenreScore < 4.0 && avgScore - minGenreScore > 1.0 {
+            // Strong negative signal - pull toward min
+            avgScore = avgScore * 0.6 + minGenreScore * 0.4
+        }
+
+        let dataPoints = genreScores.count
+        let confidence = min(Double(dataPoints) / 4.0, 1.0)
+        let reason = matchedGenres.isEmpty ? "Genre match" : "Matches: " + matchedGenres.prefix(2).joined(separator: ", ")
 
         return (avgScore, confidence, reason)
     }

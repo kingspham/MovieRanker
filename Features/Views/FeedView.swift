@@ -194,18 +194,21 @@ struct FeedCard: View {
                 if let s = log.score { ZStack { Circle().stroke(scoreColor(s), lineWidth: 3).frame(width: 40, height: 40); Text("\(s)").font(.caption).fontWeight(.black).foregroundStyle(scoreColor(s)) } }
             }.padding(.horizontal)
             HStack(alignment: .top, spacing: 12) {
-                // CLICKABLE POSTER
+                // CLICKABLE POSTER - Route to correct view based on media type
                 if let path = log.posterPath {
+                    let tmdbItem = TMDbItem(
+                        id: log.tmdbId ?? 0,
+                        title: log.title,
+                        posterPath: path,
+                        mediaType: log.mediaType
+                    )
+
                     NavigationLink {
-                        MovieInfoView(
-                            tmdb: TMDbItem(
-                                id: log.tmdbId ?? 0,  // CORRECTED: tmdbId not tmdbID
-                                title: log.title,
-                                posterPath: path,
-                                mediaType: log.mediaType
-                            ),
-                            mediaType: log.mediaType ?? "movie"
-                        )
+                        if log.mediaType == "book" {
+                            BookInfoView(item: tmdbItem)
+                        } else {
+                            MovieInfoView(tmdb: tmdbItem, mediaType: log.mediaType ?? "movie")
+                        }
                     } label: {
                         if path.contains("http") {
                             AsyncImage(url: URL(string: path)) { phase in
@@ -242,7 +245,22 @@ struct FeedCard: View {
             Divider().padding(.leading, 16)
         }.padding(.top, 8)
     }
-    func headerContent(displayName: String) -> some View { HStack { Circle().fill(Color.gray.opacity(0.2)).frame(width: 36, height: 36).overlay(Text(String(displayName.prefix(1))).bold().foregroundStyle(.secondary)); VStack(alignment: .leading, spacing: 2) { HStack(spacing: 4) { Text(displayName).font(.subheadline).bold(); Text("rated").font(.caption).foregroundStyle(.secondary); Text(log.title).font(.subheadline).bold().lineLimit(1) }; if let d = log.watchedOn { Text(d.formatted(date: .abbreviated, time: .omitted)).font(.caption2).foregroundStyle(.tertiary) } } } }
+    func headerContent(displayName: String) -> some View {
+        let actionWord = log.mediaType == "book" ? "read" : (log.mediaType == "podcast" ? "listened to" : "rated")
+        return HStack {
+            Circle().fill(Color.gray.opacity(0.2)).frame(width: 36, height: 36).overlay(Text(String(displayName.prefix(1))).bold().foregroundStyle(.secondary))
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 4) {
+                    Text(displayName).font(.subheadline).bold()
+                    Text(actionWord).font(.caption).foregroundStyle(.secondary)
+                    Text(log.title).font(.subheadline).bold().lineLimit(1)
+                }
+                if let d = log.watchedOn {
+                    Text(d.formatted(date: .abbreviated, time: .omitted)).font(.caption2).foregroundStyle(.tertiary)
+                }
+            }
+        }
+    }
     private func scoreColor(_ score: Int) -> Color { if score >= 90 { return .green }; if score >= 70 { return .blue }; if score >= 50 { return .orange }; return .red }
 }
 

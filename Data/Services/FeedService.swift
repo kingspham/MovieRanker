@@ -18,6 +18,7 @@ class FeedService: ObservableObject {
             let response: [CloudLog] = try await client
                 .from("logs")
                 .select("*, profiles(*), likes(user_id), comments(id)")
+                .order("watched_on", ascending: false, nullsFirst: false)
                 .order("created_at", ascending: false)
                 .limit(50)
                 .execute()
@@ -28,13 +29,18 @@ class FeedService: ObservableObject {
     
     func fetchPersonalizedFeed(myId: String, friendIDs: [String]) async {
         guard let client = AuthService.shared.client else { return }
-        if friendIDs.isEmpty { await fetchGlobalFeed(); return }
-        var targetIDs = friendIDs; targetIDs.append(myId)
+
+        // Only show user's own activity + friends - do NOT fallback to global feed
+        // This ensures Following feed only shows followed users (plus self)
+        var targetIDs = friendIDs
+        targetIDs.append(myId)
+
         do {
             let response: [CloudLog] = try await client
                 .from("logs")
                 .select("*, profiles(*), likes(user_id), comments(id)")
                 .in("user_id", values: targetIDs)
+                .order("watched_on", ascending: false, nullsFirst: false)
                 .order("created_at", ascending: false)
                 .limit(50)
                 .execute()
