@@ -23,60 +23,62 @@ struct SearchView: View {
     // Recent searches for autocomplete
     @StateObject private var recentSearchStore = RecentSearchStore()
 
-    // Get known titles from local library for suggestions
-    @Query private var allMovies: [Movie]
-    var localTitles: [String] {
-        allMovies.map { $0.title }
-    }
+    // Track if search field is focused
+    @State private var isSearchFocused = false
 
-    // Real-time autocomplete suggestions (shown while typing, before search completes)
-    var autocompleteSuggestions: [String] {
-        guard query.count >= 2, !hasSearched else { return [] }
+    // Cached autocomplete suggestions (computed async to avoid UI lag)
+    @State private var cachedAutocompleteSuggestions: [String] = []
+
+    // Get known titles from local library for suggestions (cached to avoid repeated fetches)
+    @Query private var allMovies: [Movie]
+
+    // Simplified autocomplete - fast, no expensive fuzzy matching during typing
+    private func updateAutocompleteSuggestions() {
+        guard query.count >= 2, !hasSearched else {
+            cachedAutocompleteSuggestions = []
+            return
+        }
 
         let queryLower = query.lowercased()
         var suggestions: [String] = []
 
-        // 1. Check recent searches that match
+        // 1. Check recent searches that match (fast - simple contains)
         let recentMatches = recentSearchStore.recent.filter {
-            $0.lowercased().contains(queryLower) || FuzzySearch.isFuzzyMatch(query: query, title: $0, threshold: 0.6)
+            $0.lowercased().contains(queryLower)
         }
         suggestions.append(contentsOf: recentMatches.prefix(3))
 
-        // 2. Check local library titles that match
-        let localMatches = localTitles.filter {
-            $0.lowercased().hasPrefix(queryLower) ||
-            $0.lowercased().contains(queryLower) ||
-            FuzzySearch.isFuzzyMatch(query: query, title: $0, threshold: 0.65)
-        }
-        for match in localMatches.prefix(4) {
+        // 2. Check local library titles that match (fast - simple prefix/contains)
+        let localMatches = allMovies.lazy
+            .map { $0.title }
+            .filter { $0.lowercased().hasPrefix(queryLower) || $0.lowercased().contains(queryLower) }
+            .prefix(4)
+        for match in localMatches {
             if !suggestions.contains(where: { $0.lowercased() == match.lowercased() }) {
                 suggestions.append(match)
             }
         }
 
-        // 3. Check popular titles for fuzzy matches
-        let popularMatches = FuzzySearch.findSuggestions(
-            query: query,
-            in: FuzzySearch.popularTitles,
-            maxResults: 3,
-            minSimilarity: 0.5
-        )
+        // 3. Check popular titles (fast - simple contains, skip fuzzy during typing)
+        let popularMatches = FuzzySearch.popularTitles.filter {
+            $0.lowercased().contains(queryLower)
+        }.prefix(3)
         for match in popularMatches {
             if !suggestions.contains(where: { $0.lowercased() == match.lowercased() }) {
                 suggestions.append(match)
             }
         }
 
-        return Array(suggestions.prefix(6))
+        cachedAutocompleteSuggestions = Array(suggestions.prefix(6))
     }
 
     var body: some View {
         NavigationStack {
             List {
                 // MARK: - AUTOCOMPLETE SUGGESTIONS (shown while typing, before search completes)
-                if !query.isEmpty && !hasSearched && !autocompleteSuggestions.isEmpty {
+                if !query.isEmpty && !hasSearched && !cachedAutocompleteSuggestions.isEmpty {
                     Section {
-                        ForEach(autocompleteSuggestions, id: \.self) { suggestion in
+                        ForEach(cachedAutocompleteSuggestions, id: \.self) { suggestion in
                             Button {
                                 query = suggestion
                             } label: {
@@ -99,8 +101,9 @@ struct SearchView: View {
                     }
                 }
 
-                // MARK: - RECENT SEARCHES (shown when query is empty or short)
-                if query.isEmpty && !recentSearchStore.recent.isEmpty {
+                // MARK: - RECENT SEARCHES (only shown when search is focused AND query is empty)
+                // Removed from initial view - only appears when user actively searches
+                if isSearchFocused && query.isEmpty && !recentSearchStore.recent.isEmpty {
                     Section {
                         ForEach(recentSearchStore.recent.prefix(5), id: \.self) { search in
                             Button {
@@ -242,11 +245,16 @@ struct SearchView: View {
             #endif
             
             .navigationTitle(query.isEmpty ? "Explore" : "Search")
-            .searchable(text: $query, prompt: "Movies, TV, Books, Podcasts...")
+            .searchable(text: $query, isPresented: $isSearchFocused, prompt: "Movies, TV, Books, Podcasts...")
+            .onChange(of: query) { _, newValue in
+                // Update autocomplete immediately with simple matching (no expensive fuzzy)
+                updateAutocompleteSuggestions()
+            }
             .task(id: query) {
-                if query.isEmpty { hasSearched = false; return }
+                if query.isEmpty { hasSearched = false; cachedAutocompleteSuggestions = []; return }
                 hasSearched = false
-                try? await Task.sleep(nanoseconds: 600_000_000)
+                // Debounce search by 500ms to avoid too many API calls
+                try? await Task.sleep(nanoseconds: 500_000_000)
                 guard !Task.isCancelled else { return }
                 await performUnifiedSearch()
             }

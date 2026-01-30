@@ -105,8 +105,11 @@ final class NotificationService: ObservableObject {
     }
     
     func sendNotification(to userId: UUID, type: String, message: String, relatedId: UUID?) async {
-        guard let myId = client.auth.currentUser?.id, userId != myId else { return }
-        
+        guard let myId = client.auth.currentUser?.id, userId != myId else {
+            print("⚠️ Skipping self-notification or no user ID")
+            return
+        }
+
         struct Payload: Encodable {
             let user_id: UUID
             let actor_id: UUID
@@ -114,12 +117,16 @@ final class NotificationService: ObservableObject {
             let message: String
             let related_id: UUID?
         }
-        
+
         let payload = Payload(user_id: userId, actor_id: myId, type: type, message: message, related_id: relatedId)
         do {
             _ = try await AuthService.shared.client.from("notifications").insert(payload).execute()
+            print("✅ Sent notification: \(type) to \(userId)")
         } catch {
-            print("Notification insert failed: \(error)")
+            // More detailed error logging
+            print("❌ Notification insert failed: \(error)")
+            print("   Payload: user_id=\(userId), actor_id=\(myId), type=\(type)")
+            print("   This may indicate the 'notifications' table doesn't exist or has RLS issues")
         }
     }
 }

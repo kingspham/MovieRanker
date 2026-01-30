@@ -202,9 +202,11 @@ struct MovieInfoView: View {
             await loadUserData()
             isLoadingUserData = false
 
-            // Calculate prediction (must stay on MainActor for SwiftData context)
-            let engine = LinearPredictionEngine()
-            self.prediction = engine.predict(for: m, in: context, userId: userId)
+            // Calculate prediction in background to not block UI
+            Task.detached(priority: .userInitiated) { @MainActor in
+                let engine = LinearPredictionEngine()
+                self.prediction = engine.predict(for: m, in: context, userId: userId)
+            }
 
             if m.genreIDs.isEmpty { Task { await selfHealGenres(for: m) } }
 
@@ -864,7 +866,7 @@ struct ExternalRatingBadge: View {
     }
 }
 
-// MARK: - Showtimes Sheet with Location
+// MARK: - Showtimes Sheet (Simplified - Uses Google Search)
 #if os(iOS)
 import CoreLocation
 import Combine
@@ -873,17 +875,13 @@ struct ShowtimesSheet: View {
     @Environment(\.dismiss) private var dismiss
     let movieTitle: String
 
-    @StateObject private var locationManager = LocationManager()
-    @State private var isLoading = true
-    @State private var locationStatus: String = "Checking location..."
-
     var body: some View {
         NavigationStack {
-            VStack(spacing: 20) {
+            VStack(spacing: 24) {
                 // Movie Header
-                VStack(spacing: 8) {
+                VStack(spacing: 12) {
                     Image(systemName: "ticket.fill")
-                        .font(.system(size: 50))
+                        .font(.system(size: 60))
                         .foregroundStyle(.orange)
 
                     Text(movieTitle)
@@ -891,132 +889,69 @@ struct ShowtimesSheet: View {
                         .fontWeight(.bold)
                         .multilineTextAlignment(.center)
                         .padding(.horizontal)
+
+                    Text("Find showtimes near you")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
                 }
-                .padding(.top, 20)
+                .padding(.top, 30)
 
                 Divider()
+                    .padding(.horizontal)
 
-                // Location Status
+                // Search Options
                 VStack(spacing: 12) {
-                    if locationManager.authorizationStatus == .notDetermined {
-                        VStack(spacing: 16) {
-                            Image(systemName: "location.circle")
-                                .font(.system(size: 40))
-                                .foregroundStyle(.blue)
+                    TheaterLinkButton(
+                        title: "Google Showtimes",
+                        subtitle: "Search for nearby theaters",
+                        icon: "magnifyingglass",
+                        color: .blue
+                    ) {
+                        openURL("\(movieTitle) showtimes near me")
+                    }
 
-                            Text("Location Required")
-                                .font(.headline)
-
-                            Text("To find nearby theaters and showtimes, we need your location.")
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                                .multilineTextAlignment(.center)
-                                .padding(.horizontal)
-
-                            Button {
-                                locationManager.requestPermission()
-                            } label: {
-                                Text("Enable Location")
-                                    .fontWeight(.semibold)
-                                    .frame(maxWidth: .infinity)
-                                    .padding()
-                                    .background(Color.blue)
-                                    .foregroundColor(.white)
-                                    .cornerRadius(12)
-                            }
-                            .padding(.horizontal, 40)
+                    TheaterLinkButton(
+                        title: "Fandango",
+                        subtitle: "Buy tickets online",
+                        icon: "ticket",
+                        color: .orange
+                    ) {
+                        if let encoded = movieTitle.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+                           let url = URL(string: "https://www.fandango.com/search?q=\(encoded)") {
+                            UIApplication.shared.open(url)
                         }
-                    } else if locationManager.authorizationStatus == .denied || locationManager.authorizationStatus == .restricted {
-                        VStack(spacing: 16) {
-                            Image(systemName: "location.slash")
-                                .font(.system(size: 40))
-                                .foregroundStyle(.red)
+                    }
 
-                            Text("Location Disabled")
-                                .font(.headline)
-
-                            Text("Please enable location access in Settings to find nearby theaters.")
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                                .multilineTextAlignment(.center)
-                                .padding(.horizontal)
-
-                            Button {
-                                if let url = URL(string: UIApplication.openSettingsURLString) {
-                                    UIApplication.shared.open(url)
-                                }
-                            } label: {
-                                Text("Open Settings")
-                                    .fontWeight(.semibold)
-                                    .frame(maxWidth: .infinity)
-                                    .padding()
-                                    .background(Color.gray.opacity(0.2))
-                                    .foregroundColor(.primary)
-                                    .cornerRadius(12)
-                            }
-                            .padding(.horizontal, 40)
-
-                            Button {
-                                openGoogleSearch()
-                            } label: {
-                                Text("Search Without Location")
-                                    .font(.subheadline)
-                                    .foregroundStyle(.blue)
-                            }
+                    TheaterLinkButton(
+                        title: "AMC Theatres",
+                        subtitle: "Check AMC locations",
+                        icon: "film",
+                        color: .red
+                    ) {
+                        if let encoded = movieTitle.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+                           let url = URL(string: "https://www.amctheatres.com/movies?query=\(encoded)") {
+                            UIApplication.shared.open(url)
                         }
-                    } else if let location = locationManager.currentLocation {
-                        // Location available - show theaters
-                        VStack(spacing: 16) {
-                            HStack {
-                                Image(systemName: "location.fill")
-                                    .foregroundStyle(.green)
-                                Text("Location found")
-                                    .foregroundStyle(.secondary)
-                            }
-                            .font(.caption)
+                    }
 
-                            // Theater options
-                            VStack(spacing: 12) {
-                                TheaterLinkButton(
-                                    title: "Fandango",
-                                    icon: "ticket",
-                                    color: .orange,
-                                    url: fandangoURL(location: location)
-                                )
-
-                                TheaterLinkButton(
-                                    title: "AMC Theatres",
-                                    icon: "film",
-                                    color: .red,
-                                    url: amcURL()
-                                )
-
-                                TheaterLinkButton(
-                                    title: "Google Showtimes",
-                                    icon: "magnifyingglass",
-                                    color: .blue,
-                                    url: googleShowtimesURL(location: location)
-                                )
-                            }
-                            .padding(.horizontal)
-                        }
-                    } else {
-                        // Loading location
-                        VStack(spacing: 12) {
-                            ProgressView()
-                            Text("Finding your location...")
-                                .foregroundStyle(.secondary)
+                    TheaterLinkButton(
+                        title: "Atom Tickets",
+                        subtitle: "Mobile ticketing",
+                        icon: "iphone",
+                        color: .purple
+                    ) {
+                        if let encoded = movieTitle.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+                           let url = URL(string: "https://www.atomtickets.com/search?query=\(encoded)") {
+                            UIApplication.shared.open(url)
                         }
                     }
                 }
-                .padding()
+                .padding(.horizontal)
 
                 Spacer()
             }
             .navigationTitle("Showtimes")
-            #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
-            #endif
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Close") { dismiss() }
@@ -1025,24 +960,9 @@ struct ShowtimesSheet: View {
         }
     }
 
-    private func fandangoURL(location: CLLocation) -> URL? {
-        let encoded = movieTitle.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
-        return URL(string: "https://www.fandango.com/search?q=\(encoded)")
-    }
-
-    private func amcURL() -> URL? {
-        let encoded = movieTitle.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
-        return URL(string: "https://www.amctheatres.com/movies?query=\(encoded)")
-    }
-
-    private func googleShowtimesURL(location: CLLocation) -> URL? {
-        let encoded = "\(movieTitle) showtimes near me".addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
-        return URL(string: "https://www.google.com/search?q=\(encoded)")
-    }
-
-    private func openGoogleSearch() {
-        let encoded = "\(movieTitle) showtimes".addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
-        if let url = URL(string: "https://www.google.com/search?q=\(encoded)") {
+    private func openURL(_ query: String) {
+        if let encoded = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+           let url = URL(string: "https://www.google.com/search?q=\(encoded)") {
             UIApplication.shared.open(url)
         }
     }
@@ -1050,24 +970,27 @@ struct ShowtimesSheet: View {
 
 struct TheaterLinkButton: View {
     let title: String
+    let subtitle: String
     let icon: String
     let color: Color
-    let url: URL?
+    let action: () -> Void
 
     var body: some View {
-        Button {
-            if let url = url {
-                UIApplication.shared.open(url)
-            }
-        } label: {
+        Button(action: action) {
             HStack {
                 Image(systemName: icon)
-                    .font(.title3)
+                    .font(.title2)
                     .foregroundStyle(color)
-                    .frame(width: 30)
+                    .frame(width: 40)
 
-                Text(title)
-                    .fontWeight(.medium)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .fontWeight(.semibold)
+                        .foregroundStyle(.primary)
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
 
                 Spacer()
 
@@ -1080,49 +1003,6 @@ struct TheaterLinkButton: View {
             .cornerRadius(12)
         }
         .buttonStyle(.plain)
-    }
-}
-
-class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
-    private let manager = CLLocationManager()
-
-    @Published var authorizationStatus: CLAuthorizationStatus
-    @Published var currentLocation: CLLocation?
-
-    override init() {
-        // Initialize @Published properties BEFORE calling super.init()
-        let mgr = CLLocationManager()
-        self.authorizationStatus = mgr.authorizationStatus
-        self.currentLocation = nil
-
-        super.init()
-
-        manager.delegate = self
-        manager.desiredAccuracy = kCLLocationAccuracyKilometer
-
-        // If already authorized, start getting location
-        if authorizationStatus == .authorizedWhenInUse || authorizationStatus == .authorizedAlways {
-            manager.requestLocation()
-        }
-    }
-
-    func requestPermission() {
-        manager.requestWhenInUseAuthorization()
-    }
-
-    func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
-        authorizationStatus = manager.authorizationStatus
-        if authorizationStatus == .authorizedWhenInUse || authorizationStatus == .authorizedAlways {
-            manager.requestLocation()
-        }
-    }
-
-    func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
-        currentLocation = locations.first
-    }
-
-    func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
-        print("Location error: \(error.localizedDescription)")
     }
 }
 #else
