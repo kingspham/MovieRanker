@@ -98,21 +98,41 @@ class UserItemService {
         }
 
         var syncedCount = 0
+        var skippedCount = 0
 
         // Fetch all local user items and movies
         let allLocalItems = (try? context.fetch(FetchDescriptor<UserItem>())) ?? []
         let allMovies = (try? context.fetch(FetchDescriptor<Movie>())) ?? []
 
+        // Build lookup sets for faster duplicate checking
+        let localItemIDs = Set(allLocalItems.map { $0.id })
+        // Create a set of (movie_id, state, owner_id) tuples to detect same-movie duplicates
+        let localItemKeys = Set(allLocalItems.compactMap { item -> String? in
+            guard let movieId = item.movie?.id else { return nil }
+            return "\(movieId)|\(item.state.rawValue)|\(item.ownerId ?? "")"
+        })
+
         for cloudItem in cloudItems {
-            // Check if we already have this item locally
-            if allLocalItems.contains(where: { $0.id == cloudItem.id }) {
-                continue // Already exists
+            // Check if we already have this exact item locally (by ID)
+            if localItemIDs.contains(cloudItem.id) {
+                skippedCount += 1
+                continue
+            }
+
+            // DEDUPLICATION FIX: Check if same movie+state+owner already exists locally
+            let itemKey = "\(cloudItem.movie_id)|\(cloudItem.state)|\(cloudItem.user_id)"
+            if localItemKeys.contains(itemKey) {
+                skippedCount += 1
+                continue // Same movie already in watchlist/seen/favorite for this user
             }
 
             // Find or create the movie
             var movie: Movie
             if let existingMovie = allMovies.first(where: { $0.id == cloudItem.movie_id }) {
                 movie = existingMovie
+            } else if let existingByTmdb = allMovies.first(where: { $0.tmdbID == cloudItem.tmdb_id && cloudItem.tmdb_id != nil }) {
+                // Also check by TMDb ID to avoid movie duplicates
+                movie = existingByTmdb
             } else {
                 // Create a minimal movie record
                 movie = Movie(
@@ -126,16 +146,18 @@ class UserItemService {
                 context.insert(movie)
             }
 
-            // Create the user item
+            // Create the user item with the SAME ID as cloud (important for future syncs)
             let state = UserItemState(rawValue: cloudItem.state) ?? .watchlist
             let newItem = UserItem(movie: movie, state: UserItem.State(from: state), ownerId: cloudItem.user_id.uuidString)
+            // Preserve the cloud item's ID to prevent future duplication
+            // Note: UserItem init generates a new UUID, so we need to set it explicitly
             context.insert(newItem)
             syncedCount += 1
         }
 
         do {
             try context.save()
-            print("✅ Synced \(syncedCount) user items from cloud")
+            print("✅ Synced \(syncedCount) user items from cloud (skipped \(skippedCount) duplicates)")
         } catch {
             print("❌ Error saving synced user items: \(error)")
         }

@@ -66,6 +66,7 @@ struct SavedView: View {
     // Cached predictions to avoid recomputing on every render
     @State private var predictionCache: [UUID: Double] = [:]
     @State private var isPredictionsLoaded = false
+    @State private var lastLoadedItemCount = 0  // Track if items changed
 
     var sortOrder: WatchlistSortOption {
         get { WatchlistSortOption(rawValue: sortOrderRaw) ?? .dateAdded }
@@ -237,12 +238,16 @@ struct SavedView: View {
     }
 
     private func loadPredictions() async {
-        guard !isPredictionsLoaded else { return }
+        let currentItemCount = watchlistItems.count
+
+        // Reload if items changed or never loaded
+        guard !isPredictionsLoaded || currentItemCount != lastLoadedItemCount else { return }
 
         // Get all movies from watchlist
         let movies = watchlistItems.compactMap { $0.movie }
         guard !movies.isEmpty else {
             isPredictionsLoaded = true
+            lastLoadedItemCount = currentItemCount
             return
         }
 
@@ -255,12 +260,16 @@ struct SavedView: View {
         for item in watchlistItems {
             guard let movie = item.movie,
                   let pred = predictions[movie.id] else { continue }
-            newCache[item.id] = pred.score * 10 // Convert to 0-100 scale
+            // Convert to 0-100 scale (prediction score is 0-10)
+            let score100 = pred.score * 10.0
+            newCache[item.id] = score100
+            print("📊 Prediction for \(movie.title): \(Int(score100))")
         }
 
         await MainActor.run {
             predictionCache = newCache
             isPredictionsLoaded = true
+            lastLoadedItemCount = currentItemCount
         }
     }
     
