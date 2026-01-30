@@ -1030,14 +1030,19 @@ struct TheaterLinkButton: View {
 class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
     private let manager = CLLocationManager()
 
-    @Published var authorizationStatus: CLAuthorizationStatus = .notDetermined
+    @Published var authorizationStatus: CLAuthorizationStatus
     @Published var currentLocation: CLLocation?
 
     override init() {
+        // Initialize @Published properties BEFORE calling super.init()
+        let mgr = CLLocationManager()
+        self.authorizationStatus = mgr.authorizationStatus
+        self.currentLocation = nil
+
         super.init()
+
         manager.delegate = self
         manager.desiredAccuracy = kCLLocationAccuracyKilometer
-        authorizationStatus = manager.authorizationStatus
 
         // If already authorized, start getting location
         if authorizationStatus == .authorizedWhenInUse || authorizationStatus == .authorizedAlways {
