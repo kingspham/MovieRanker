@@ -13,6 +13,10 @@ struct SearchView: View {
     @State private var trending: [TMDbItem] = []
     @State private var inTheaters: [TMDbItem] = []
     @State private var streaming: [TMDbItem] = []
+    @State private var suggestedForYou: [TMDbItem] = []
+
+    // Query user's scores for personalized suggestions
+    @Query private var allScores: [Score]
 
     @State private var isLoading = false
     @State private var hasSearched = false
@@ -192,6 +196,24 @@ struct SearchView: View {
                 }
                 // MARK: - DISCOVERY
                 else {
+                    // Suggested For You (personalized based on user's taste)
+                    if !suggestedForYou.isEmpty {
+                        Section(header: HStack {
+                            Text("✨ Suggested For You")
+                            Spacer()
+                            NavigationLink("See All") {
+                                SuggestedForYouView(userId: userId)
+                            }
+                            .font(.caption)
+                        }) {
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                HStack(spacing: 16) {
+                                    ForEach(suggestedForYou, id: \.id) { m in DiscoveryCard(item: m) }
+                                }.padding(.vertical, 8)
+                            }.listRowInsets(EdgeInsets())
+                        }
+                    }
+
                     if !trending.isEmpty {
                         Section(header: Text("🔥 Trending Today")) {
                             ScrollView(.horizontal, showsIndicators: false) {
@@ -314,7 +336,42 @@ struct SearchView: View {
             async let streamTask = client.getStreaming()
             let (trend, theater, stream) = try await (trendTask, theaterTask, streamTask)
             self.trending = trend.results; self.inTheaters = theater.results; self.streaming = stream.results
+
+            // Load personalized suggestions
+            await loadSuggestedForYou(client: client)
         } catch { print("Discovery Error: \(error)") }
+    }
+
+    private func loadSuggestedForYou(client: TMDbClient) async {
+        // Get user's top-rated movies
+        let userScores = allScores.filter { ($0.ownerId == userId || $0.ownerId == "guest") && $0.display100 >= 70 }
+
+        // Build genre frequency from highly-rated movies
+        var genreCount: [Int: Int] = [:]
+        var seenTmdbIds = Set<Int>()
+
+        for score in userScores {
+            if let movie = allMovies.first(where: { $0.id == score.movieID }) {
+                if let tmdbId = movie.tmdbID { seenTmdbIds.insert(tmdbId) }
+                for genreId in movie.genreIDs ?? [] {
+                    genreCount[genreId, default: 0] += 1
+                }
+            }
+        }
+
+        // Get top 3 genres
+        let topGenres = genreCount.sorted { $0.value > $1.value }.prefix(3).map { $0.key }
+
+        guard !topGenres.isEmpty else { return }
+
+        do {
+            let response = try await client.discoverByGenres(genreIds: Array(topGenres))
+            // Filter out already seen movies
+            let suggestions = response.results.filter { !seenTmdbIds.contains($0.id) }
+            self.suggestedForYou = Array(suggestions.prefix(10))
+        } catch {
+            print("Suggestions Error: \(error)")
+        }
     }
     
     // Subviews
@@ -620,4 +677,154 @@ struct StreamingNowView: View {
         }
         isLoading = false
     }
+}
+
+// MARK: - Suggested For You View
+struct SuggestedForYouView: View {
+    @Environment(\.modelContext) private var context
+    let userId: String
+
+    @Query private var allMovies: [Movie]
+    @Query private var allScores: [Score]
+
+    @State private var suggestions: [TMDbItem] = []
+    @State private var isLoading = true
+    @State private var topGenreNames: [String] = []
+
+    var body: some View {
+        Group {
+            if isLoading {
+                VStack(spacing: 16) {
+                    ProgressView()
+                    Text("Analyzing your taste...")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+            } else if suggestions.isEmpty {
+                ContentUnavailableView(
+                    "No Suggestions Yet",
+                    systemImage: "star.fill",
+                    description: Text("Rate more movies to get personalized recommendations!")
+                )
+            } else {
+                List {
+                    if !topGenreNames.isEmpty {
+                        Section {
+                            Text("Based on your love of \(topGenreNames.joined(separator: ", "))")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+
+                    ForEach(suggestions, id: \.id) { movie in
+                        NavigationLink {
+                            MovieInfoView(tmdb: movie, mediaType: movie.mediaType ?? "movie")
+                                .modelContext(context)
+                        } label: {
+                            HStack(spacing: 12) {
+                                PosterThumb(posterPath: movie.posterPath, title: movie.displayTitle, width: 60)
+                                    .cornerRadius(8)
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(movie.displayTitle)
+                                        .font(.headline)
+                                        .lineLimit(2)
+                                    HStack(spacing: 6) {
+                                        if movie.mediaType == "tv" {
+                                            Text("TV")
+                                                .font(.caption2)
+                                                .fontWeight(.bold)
+                                                .padding(.horizontal, 6)
+                                                .padding(.vertical, 2)
+                                                .background(Color.blue.opacity(0.1))
+                                                .foregroundColor(.blue)
+                                                .cornerRadius(4)
+                                        }
+                                        if let year = movie.year {
+                                            Text(String(year))
+                                                .font(.caption)
+                                                .foregroundStyle(.secondary)
+                                        }
+                                    }
+                                }
+                            }
+                            .padding(.vertical, 4)
+                        }
+                    }
+                }
+                .listStyle(.plain)
+            }
+        }
+        .navigationTitle("Suggested For You")
+        .task {
+            await loadSuggestions()
+        }
+    }
+
+    private func loadSuggestions() async {
+        // Get user's top-rated movies
+        let userScores = allScores.filter { ($0.ownerId == userId || $0.ownerId == "guest") && $0.display100 >= 70 }
+
+        // Build genre frequency from highly-rated movies
+        var genreCount: [Int: Int] = [:]
+        var seenTmdbIds = Set<Int>()
+
+        for score in userScores {
+            if let movie = allMovies.first(where: { $0.id == score.movieID }) {
+                if let tmdbId = movie.tmdbID { seenTmdbIds.insert(tmdbId) }
+                for genreId in movie.genreIDs ?? [] {
+                    genreCount[genreId, default: 0] += 1
+                }
+            }
+        }
+
+        // Get top 3 genres
+        let topGenres = genreCount.sorted { $0.value > $1.value }.prefix(3).map { $0.key }
+
+        // Map genre IDs to names
+        topGenreNames = topGenres.compactMap { genreIdToName[$0] }
+
+        guard !topGenres.isEmpty else {
+            isLoading = false
+            return
+        }
+
+        do {
+            let client = try TMDbClient()
+
+            // Get movie suggestions
+            async let movieTask = client.discoverByGenres(genreIds: Array(topGenres))
+            // Get TV suggestions
+            async let tvTask = client.discoverTVByGenres(genreIds: Array(topGenres.map { movieGenreToTVGenre[$0] ?? $0 }))
+
+            let (movieResp, tvResp) = try await (movieTask, tvTask)
+
+            // Combine and filter
+            var combined = movieResp.results + tvResp.results
+            combined = combined.filter { !seenTmdbIds.contains($0.id) }
+
+            // Sort by popularity and take top 30
+            combined.sort { ($0.popularity ?? 0) > ($1.popularity ?? 0) }
+            self.suggestions = Array(combined.prefix(30))
+        } catch {
+            print("Failed to load suggestions: \(error)")
+        }
+        isLoading = false
+    }
+
+    // Genre ID to name mapping (TMDb genre IDs for movies)
+    private let genreIdToName: [Int: String] = [
+        28: "Action", 12: "Adventure", 16: "Animation", 35: "Comedy",
+        80: "Crime", 99: "Documentary", 18: "Drama", 10751: "Family",
+        14: "Fantasy", 36: "History", 27: "Horror", 10402: "Music",
+        9648: "Mystery", 10749: "Romance", 878: "Sci-Fi", 10770: "TV Movie",
+        53: "Thriller", 10752: "War", 37: "Western"
+    ]
+
+    // Map movie genre IDs to TV genre IDs (some differ)
+    private let movieGenreToTVGenre: [Int: Int] = [
+        28: 10759,  // Action -> Action & Adventure
+        12: 10759,  // Adventure -> Action & Adventure
+        878: 10765, // Sci-Fi -> Sci-Fi & Fantasy
+        14: 10765   // Fantasy -> Sci-Fi & Fantasy
+    ]
 }

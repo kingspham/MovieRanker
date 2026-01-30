@@ -29,9 +29,12 @@ struct LeaderboardView: View {
 
     // ENUMS
     enum MediaTypeFilter: String, CaseIterable, Identifiable {
-        case all = "All"; case movies = "Movies"; case shows = "Shows"; case books = "Books"; case podcasts = "Podcasts"
+        case all = "All"; case movies = "Movies"; case docs = "Docs"; case shows = "Shows"; case books = "Books"; case podcasts = "Podcasts"
         var id: String { rawValue }
     }
+
+    // Documentary genre ID in TMDb
+    private let documentaryGenreID = 99
     
     enum SortOption: String, CaseIterable, Identifiable {
         case rank = "Rank"; case title = "Title"; case date = "Date Added"; case metacritic = "Metacritic"; case imdb = "IMDb"; case rottenTomatoes = "Rotten Tomatoes"
@@ -207,7 +210,11 @@ struct LeaderboardView: View {
         var rows: [Row] = []
         for s in bestScores.values {
             if let m = moviesByID[s.movieID] {
-                if filter == .movies && m.mediaType != "movie" { continue }
+                let isDocumentary = m.genreIDs.contains(documentaryGenreID)
+
+                // Filter logic: movies excludes docs, docs only shows docs
+                if filter == .movies && (m.mediaType != "movie" || isDocumentary) { continue }
+                if filter == .docs && (m.mediaType != "movie" || !isDocumentary) { continue }
                 if filter == .shows && m.mediaType != "tv" { continue }
                 if filter == .books && m.mediaType != "book" { continue }
                 if filter == .podcasts && m.mediaType != "podcast" { continue }

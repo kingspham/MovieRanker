@@ -366,6 +366,40 @@ public actor TMDbClient {
         return try await request(path: "/person/\(id)/combined_credits", items: [])
     }
 
+    /// Get recommendations based on a specific movie
+    public func getRecommendations(id: Int, type: String) async throws -> TMDbPagedResponse<TMDbItem> {
+        return try await request(path: "/\(type)/\(id)/recommendations", items: [])
+    }
+
+    /// Discover movies by genre IDs
+    public func discoverByGenres(genreIds: [Int], excludeIds: Set<Int> = [], page: Int = 1) async throws -> TMDbPagedResponse<TMDbItem> {
+        let genreString = genreIds.map(String.init).joined(separator: "|")
+        return try await request(path: "/discover/movie", items: [
+            URLQueryItem(name: "with_genres", value: genreString),
+            URLQueryItem(name: "sort_by", value: "popularity.desc"),
+            URLQueryItem(name: "vote_count.gte", value: "100"),
+            URLQueryItem(name: "include_adult", value: "false"),
+            URLQueryItem(name: "page", value: String(page))
+        ])
+    }
+
+    /// Discover TV shows by genre IDs
+    public func discoverTVByGenres(genreIds: [Int], page: Int = 1) async throws -> TMDbPagedResponse<TMDbItem> {
+        let genreString = genreIds.map(String.init).joined(separator: "|")
+        let resp: TMDbPagedResponse<TMDbItem> = try await request(path: "/discover/tv", items: [
+            URLQueryItem(name: "with_genres", value: genreString),
+            URLQueryItem(name: "sort_by", value: "popularity.desc"),
+            URLQueryItem(name: "vote_count.gte", value: "50"),
+            URLQueryItem(name: "include_adult", value: "false"),
+            URLQueryItem(name: "page", value: String(page))
+        ])
+        // Fix media type for TV shows
+        let fixed = resp.results.map { item -> TMDbItem in
+            TMDbItem(id: item.id, title: nil, name: item.displayTitle, overview: item.overview, releaseDate: nil, firstAirDate: item.year.map(String.init), posterPath: item.posterPath, genreIds: item.genreIds, tags: nil, mediaType: "tv", popularity: item.popularity)
+        }
+        return TMDbPagedResponse(page: resp.page, results: fixed, totalPages: resp.totalPages, totalResults: resp.totalResults)
+    }
+
     private func request<T: Decodable>(path: String, items: [URLQueryItem]) async throws -> T {
         var comps = URLComponents(url: base.appendingPathComponent(path), resolvingAgainstBaseURL: false)!
         comps.queryItems = items.isEmpty ? nil : items

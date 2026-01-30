@@ -1,5 +1,5 @@
 // WatchHistoryView.swift
-// WITH SORTING - Like Leaderboard style
+// WITH SORTING + EDIT FUNCTIONALITY
 
 import SwiftUI
 import SwiftData
@@ -11,6 +11,7 @@ struct WatchHistoryView: View {
 
     @State private var userId: String = "guest"
     @State private var searchText: String = ""
+    @State private var editingLog: LogEntry? = nil
     @AppStorage("historySortOrder") private var sortOrderRaw: String = HistorySortOption.dateWatched.rawValue
     @AppStorage("historySortAscending") private var sortAscending: Bool = false // false = descending (newest first)
 
@@ -169,12 +170,20 @@ struct WatchHistoryView: View {
                                 }
                             }
                         }
-                        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                             Button(role: .destructive) {
                                 deleteLogEntry(log, movie: movie)
                             } label: {
                                 Label("Delete", systemImage: "trash")
                             }
+                        }
+                        .swipeActions(edge: .leading, allowsFullSwipe: true) {
+                            Button {
+                                editingLog = log
+                            } label: {
+                                Label("Edit", systemImage: "pencil")
+                            }
+                            .tint(.blue)
                         }
                     }
                 }
@@ -185,6 +194,9 @@ struct WatchHistoryView: View {
         .searchable(text: $searchText)
         .task {
             userId = AuthService.shared.currentUserId() ?? "guest"
+        }
+        .sheet(item: $editingLog) { log in
+            EditEntrySheet(log: log, context: context)
         }
     }
 
@@ -204,5 +216,140 @@ struct WatchHistoryView: View {
         }
 
         try? context.save()
+    }
+}
+
+// MARK: - Edit Entry Sheet
+struct EditEntrySheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let log: LogEntry
+    let context: ModelContext
+
+    @State private var watchedOn: Date
+    @State private var platform: String
+    @State private var withWho: String
+    @State private var notes: String
+    @State private var showDatePicker = false
+
+    let visualPlatforms = ["Theater", "Netflix", "HBO/Max", "Hulu", "Prime Video", "Apple TV+", "Disney+", "Other", "Not Sure"]
+    let audioPlatforms = ["Apple Podcasts", "Spotify", "YouTube", "Overcast", "Pocket Casts", "Other", "Not Sure"]
+
+    var isBook: Bool { log.movie?.mediaType == "book" }
+    var isPodcast: Bool { log.movie?.mediaType == "podcast" }
+
+    init(log: LogEntry, context: ModelContext) {
+        self.log = log
+        self.context = context
+        _watchedOn = State(initialValue: log.watchedOn ?? Date())
+        _platform = State(initialValue: log.whereWatched?.rawValue.capitalized ?? "Other")
+        _withWho = State(initialValue: log.withWho ?? "")
+        _notes = State(initialValue: log.notes ?? "")
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                // Movie/Book Info Header
+                if let movie = log.movie {
+                    Section {
+                        HStack(spacing: 12) {
+                            PosterThumb(posterPath: movie.posterPath, title: movie.title, width: 50)
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(movie.title)
+                                    .font(.headline)
+                                if let year = movie.year {
+                                    Text(String(year))
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Date Section
+                Section("When") {
+                    if log.watchedOn != nil {
+                        DatePicker(
+                            isBook ? "Date Read" : "Date Watched",
+                            selection: $watchedOn,
+                            displayedComponents: .date
+                        )
+                    } else {
+                        HStack {
+                            Text("Date Unknown")
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                            Button("Set Date") {
+                                log.watchedOn = Date()
+                                watchedOn = Date()
+                            }
+                            .font(.caption)
+                            .buttonStyle(.borderedProminent)
+                        }
+                    }
+                }
+
+                // Platform Section (not for books)
+                if !isBook {
+                    Section("Platform") {
+                        Picker("Watched On", selection: $platform) {
+                            ForEach(isPodcast ? audioPlatforms : visualPlatforms, id: \.self) { p in
+                                Text(p).tag(p)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                    }
+                }
+
+                // Watched With Section
+                Section("Watched With") {
+                    TextField(isBook ? "Read with..." : "Watched with...", text: $withWho)
+                }
+
+                // Notes Section
+                Section("Notes") {
+                    TextField("Your thoughts...", text: $notes, axis: .vertical)
+                        .lineLimit(3...8)
+                }
+            }
+            .navigationTitle("Edit Entry")
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        saveChanges()
+                    }
+                    .bold()
+                }
+            }
+        }
+    }
+
+    private func saveChanges() {
+        // Update the log entry
+        if log.watchedOn != nil {
+            log.watchedOn = watchedOn
+        }
+
+        // Map platform string to WatchLocation
+        if !isBook {
+            switch platform.lowercased() {
+            case "theater": log.whereWatched = .theater
+            case "not sure": log.whereWatched = .notSure
+            default: log.whereWatched = .other
+            }
+        }
+
+        log.withWho = withWho.isEmpty ? nil : withWho
+        log.notes = notes.isEmpty ? nil : notes
+
+        try? context.save()
+        dismiss()
     }
 }
