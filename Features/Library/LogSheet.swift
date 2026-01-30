@@ -301,7 +301,7 @@ struct FriendPickerSheet: View {
                 } else {
                     List {
                         ForEach(filteredFriends, id: \.id) { friend in
-                            FriendRow(friend: friend, isSelected: taggedUsers.contains { $0.id == friend.id }) {
+                            TaggableFriendRow(friend: friend, isSelected: taggedUsers.contains { $0.id == friend.id }) {
                                 toggleFriend(friend)
                             }
                         }
@@ -339,7 +339,7 @@ struct FriendPickerSheet: View {
     }
 }
 
-struct FriendRow: View {
+struct TaggableFriendRow: View {
     let friend: SocialProfile
     let isSelected: Bool
     let onTap: () -> Void
