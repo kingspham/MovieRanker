@@ -867,6 +867,7 @@ struct ExternalRatingBadge: View {
 // MARK: - Showtimes Sheet with Location
 #if os(iOS)
 import CoreLocation
+import Combine
 
 struct ShowtimesSheet: View {
     @Environment(\.dismiss) private var dismiss
