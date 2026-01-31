@@ -173,7 +173,7 @@ struct LogSheet: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Next: Rank") { saveLog() }.bold()
+                    Button(existingLog == nil ? "Next: Rank" : "Save") { saveLog() }.bold()
                 }
             }
             .task {
@@ -251,7 +251,9 @@ struct LogSheet: View {
         
         try? context.save()
         dismiss()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { showRanking = true }
+        if existingLog == nil {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { showRanking = true }
+        }
     }
 }
 
