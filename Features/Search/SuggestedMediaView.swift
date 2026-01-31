@@ -16,7 +16,7 @@ struct SuggestedMediaView: View {
                 ProgressView()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if items.isEmpty {
-                ContentUnavailableView("No Suggestions", image: <#String#>)
+                ContentUnavailableView("No Suggestions", systemImage: "sparkles")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 List(items, id: \.id) { item in
@@ -76,16 +76,16 @@ struct SuggestedMediaView: View {
                     let response = try await client.discoverByGenres(genreIds: [])
                     self.items = response.results
                 } catch {
-                    let fallback = try await client.getTrending(mediaType: "movie")
-                    self.items = fallback.results
+                    let fallback = try await client.getTrending()
+                    self.items = fallback.results.filter { $0.mediaType == "movie" }
                 }
             } else if mediaType == "tv" {
                 do {
                     let response = try await client.discoverTVByGenres(genreIds: [])
                     self.items = response.results
                 } catch {
-                    let fallback = try await client.getTrending(mediaType: "tv")
-                    self.items = fallback.results
+                    let fallback = try await client.getTrending()
+                    self.items = fallback.results.filter { $0.mediaType == "tv" }
                 }
             } else {
                 self.items = []
