@@ -11,7 +11,6 @@ struct BulkRankingView: View {
     @Query private var allUserItems: [UserItem]
     @Query private var allScores: [Score]
     @Query private var allLogs: [LogEntry]
-    @Query private var allMovies: [Movie]
     
     @State private var userId: String = "guest"
     @State private var unrankedItems: [Movie] = []
@@ -244,7 +243,7 @@ struct BulkRankingView: View {
         var seenKeys = Set<String>()
         
         for log in seenLogs {
-            guard let movie = resolveMovie(from: log.movie) else { continue }
+            guard let movie = log.movie else { continue }
             let isRanked = rankedMovieIDs.contains(movie.id)
             if isRanked { continue }
             
