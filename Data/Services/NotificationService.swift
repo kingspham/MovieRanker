@@ -58,18 +58,20 @@ final class NotificationService: ObservableObject {
         lastFetchTime = Date()
 
         // Try multiple query patterns for robustness
-        let queries: [(String, String)] = [
-            ("with foreign key join", "*, profiles!notifications_actor_id_fkey(*)"),
-            ("with simple join", "*, profiles(*)"),
-            ("without join", "id, user_id, actor_id, type, message, related_id, read, created_at")
+        let queries: [(String, String, String)] = [
+            ("with foreign key join", "*, profiles!notifications_actor_id_fkey(*)", "user_id"),
+            ("with simple join", "*, profiles(*)", "user_id"),
+            ("without join message", "id, user_id, actor_id, type, message, related_id, read, created_at", "user_id"),
+            ("without join body", "id, user_id, actor_id, type, body, related_id, read, created_at", "user_id"),
+            ("without join text", "id, user_id, actor_id, type, text, related_id, read, created_at", "user_id")
         ]
 
-        for (name, selectQuery) in queries {
+        for (name, selectQuery, userColumn) in queries {
             do {
                 let response: [AppNotification] = try await client
                     .from("notifications")
                     .select(selectQuery)
-                    .eq("user_id", value: myId)
+                    .eq(userColumn, value: myId)
                     .order("created_at", ascending: false)
                     .limit(30)
                     .execute()
@@ -90,6 +92,38 @@ final class NotificationService: ObservableObject {
             }
         }
 
+        let recipientQueries: [(String, String)] = [
+            ("with recipient join", "*, profiles!notifications_actor_id_fkey(*)"),
+            ("without join recipient message", "id, recipient_id, actor_id, type, message, related_id, read, created_at"),
+            ("without join recipient body", "id, recipient_id, actor_id, type, body, related_id, read, created_at"),
+            ("without join recipient text", "id, recipient_id, actor_id, type, text, related_id, read, created_at")
+        ]
+
+        for (name, selectQuery) in recipientQueries {
+            do {
+                let response: [AppNotification] = try await client
+                    .from("notifications")
+                    .select(selectQuery)
+                    .eq("recipient_id", value: myId)
+                    .order("created_at", ascending: false)
+                    .limit(30)
+                    .execute()
+                    .value
+
+                self.notifications = response
+                self.unreadCount = response.filter { !$0.read }.count
+                self.lastFetchFailed = false
+                self.consecutiveFailures = 0
+                print("✅ Fetched \(response.count) notifications \(name) (\(self.unreadCount) unread)")
+                return
+            } catch {
+                if consecutiveFailures == 0 {
+                    print("⚠️ Notification fetch \(name) failed: \(error.localizedDescription)")
+                }
+                continue
+            }
+        }
+
         // All patterns failed
         self.lastFetchFailed = true
         self.consecutiveFailures += 1
@@ -101,6 +135,7 @@ final class NotificationService: ObservableObject {
     func markAllRead() async {
         guard let myId = client.auth.currentUser?.id else { return }
         _ = try? await client.from("notifications").update(["read": true]).eq("user_id", value: myId).execute()
+        _ = try? await client.from("notifications").update(["read": true]).eq("recipient_id", value: myId).execute()
         unreadCount = 0
     }
     

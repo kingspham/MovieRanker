@@ -13,7 +13,8 @@ struct SearchView: View {
     @State private var trending: [TMDbItem] = []
     @State private var inTheaters: [TMDbItem] = []
     @State private var streaming: [TMDbItem] = []
-    @State private var suggestedForYou: [TMDbItem] = []
+    @State private var suggestedMovies: [TMDbItem] = []
+    @State private var suggestedShows: [TMDbItem] = []
 
     // Query user's scores for personalized suggestions
     @Query private var allScores: [Score]
@@ -35,6 +36,7 @@ struct SearchView: View {
 
     // Get known titles from local library for suggestions (cached to avoid repeated fetches)
     @Query private var allMovies: [Movie]
+    private var localTitles: [String] { allMovies.map(\.title) }
 
     // Simplified autocomplete - fast, no expensive fuzzy matching during typing
     private func updateAutocompleteSuggestions() {
@@ -196,10 +198,10 @@ struct SearchView: View {
                 }
                 // MARK: - DISCOVERY
                 else {
-                    // Suggested For You (personalized based on user's taste)
-                    if !suggestedForYou.isEmpty {
+                    // Suggested Movies (personalized based on user's taste)
+                    if !suggestedMovies.isEmpty {
                         Section(header: HStack {
-                            Text("✨ Suggested For You")
+                            Text("✨ Suggested Movies")
                             Spacer()
                             NavigationLink("See All") {
                                 SuggestedForYouView(userId: userId)
@@ -208,7 +210,17 @@ struct SearchView: View {
                         }) {
                             ScrollView(.horizontal, showsIndicators: false) {
                                 HStack(spacing: 16) {
-                                    ForEach(suggestedForYou, id: \.id) { m in DiscoveryCard(item: m) }
+                                    ForEach(suggestedMovies, id: \.id) { m in DiscoveryCard(item: m) }
+                                }.padding(.vertical, 8)
+                            }.listRowInsets(EdgeInsets())
+                        }
+                    }
+
+                    if !suggestedShows.isEmpty {
+                        Section(header: Text("✨ Suggested Shows")) {
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                HStack(spacing: 16) {
+                                    ForEach(suggestedShows, id: \.id) { m in DiscoveryCard(item: m) }
                                 }.padding(.vertical, 8)
                             }.listRowInsets(EdgeInsets())
                         }
@@ -267,7 +279,7 @@ struct SearchView: View {
             #endif
             
             .navigationTitle(query.isEmpty ? "Explore" : "Search")
-            .searchable(text: $query, isPresented: $isSearchFocused, prompt: "Movies, TV, Books, Podcasts...")
+            .searchable(text: $query, isPresented: $isSearchFocused, prompt: "Movies, TV, People, Books, Podcasts...")
             .onChange(of: query) { _, newValue in
                 // Update autocomplete immediately with simple matching (no expensive fuzzy)
                 updateAutocompleteSuggestions()
@@ -295,6 +307,13 @@ struct SearchView: View {
             recentSearchStore.add(searchQuery)
         }
 
+        guard searchQuery.count >= 2 else {
+            results = []
+            hasSearched = false
+            isLoading = false
+            return
+        }
+
         do {
             async let tmdbTask = TMDbClient().searchMulti(query: query)
             async let booksTask = BooksAPI().searchBooks(query: query)
@@ -302,8 +321,9 @@ struct SearchView: View {
 
             let (tmdbPage, bookResults, podcastResults) = try await (tmdbTask, booksTask, podcastsTask)
             let visualResults = tmdbPage.results.filter { $0.mediaType == "movie" || $0.mediaType == "tv" }
+            let peopleResults = tmdbPage.results.filter { $0.mediaType == "person" }
 
-            self.results = visualResults + bookResults + podcastResults
+            self.results = visualResults + peopleResults + bookResults + podcastResults
             self.hasSearched = true
 
             // Generate fuzzy suggestions if no results
@@ -353,7 +373,7 @@ struct SearchView: View {
         for score in userScores {
             if let movie = allMovies.first(where: { $0.id == score.movieID }) {
                 if let tmdbId = movie.tmdbID { seenTmdbIds.insert(tmdbId) }
-                for genreId in movie.genreIDs ?? [] {
+                for genreId in movie.genreIDs {
                     genreCount[genreId, default: 0] += 1
                 }
             }
@@ -365,10 +385,24 @@ struct SearchView: View {
         guard !topGenres.isEmpty else { return }
 
         do {
-            let response = try await client.discoverByGenres(genreIds: Array(topGenres))
-            // Filter out already seen movies
-            let suggestions = response.results.filter { !seenTmdbIds.contains($0.id) }
-            self.suggestedForYou = Array(suggestions.prefix(10))
+            async let movieTask = client.discoverByGenres(genreIds: Array(topGenres))
+            async let tvTask = client.discoverTVByGenres(genreIds: Array(topGenres))
+            let (movieResponse, tvResponse) = try await (movieTask, tvTask)
+            let movieSuggestions = movieResponse.results.filter { !seenTmdbIds.contains($0.id) }
+            let tvSuggestions = tvResponse.results.filter { !seenTmdbIds.contains($0.id) }
+            let engine = LinearPredictionEngine()
+            let scoredMovies = scoreSuggestions(
+                items: Array(movieSuggestions.prefix(30)),
+                mediaType: "movie",
+                engine: engine
+            )
+            let scoredShows = scoreSuggestions(
+                items: Array(tvSuggestions.prefix(30)),
+                mediaType: "tv",
+                engine: engine
+            )
+            self.suggestedMovies = scoredMovies.filter { $0.score >= 7.0 }.prefix(10).map { $0.item }
+            self.suggestedShows = scoredShows.filter { $0.score >= 7.0 }.prefix(10).map { $0.item }
         } catch {
             print("Suggestions Error: \(error)")
         }
@@ -378,7 +412,20 @@ struct SearchView: View {
     func SearchResultRow(item: TMDbItem) -> some View {
         NavigationLink { destination(for: item) } label: {
             HStack(spacing: 12) {
-                if let path = item.posterPath, path.contains("http") {
+                if item.mediaType == "person" {
+                    if let path = item.posterPath, path.contains("http") {
+                        AsyncImage(url: URL(string: path)) { p in
+                            if let i = p.image { i.resizable().scaledToFill() } else { Color.gray.opacity(0.2) }
+                        }
+                        .frame(width: 48, height: 72)
+                        .cornerRadius(4)
+                    } else {
+                        Image(systemName: "person.fill")
+                            .frame(width: 48, height: 72)
+                            .background(Color.gray.opacity(0.15))
+                            .cornerRadius(4)
+                    }
+                } else if let path = item.posterPath, path.contains("http") {
                     AsyncImage(url: URL(string: path)) { p in if let i = p.image { i.resizable().scaledToFill() } else { Color.gray.opacity(0.2) } }.frame(width: 48, height: 72).cornerRadius(4)
                 } else { PosterThumb(posterPath: item.posterPath, title: item.displayTitle, width: 48) }
                 VStack(alignment: .leading, spacing: 2) {
@@ -402,6 +449,7 @@ struct SearchView: View {
     private func destination(for item: TMDbItem) -> some View {
         if item.mediaType == "book" { BookInfoView(item: item).modelContext(context) }
         else if item.mediaType == "podcast" { PodcastInfoView(item: item).modelContext(context) }
+        else if item.mediaType == "person" { PersonDetailView(personId: item.id, personName: item.displayTitle) }
         else { MovieInfoView(tmdb: item, mediaType: item.mediaType ?? "movie").modelContext(context) }
     }
     
@@ -410,7 +458,30 @@ struct SearchView: View {
         if type == "tv" { color = .blue; label = "TV" }
         else if type == "book" { color = .green; label = "Book" }
         else if type == "podcast" { color = .purple; label = "Podcast" }
+        else if type == "person" { color = .gray; label = "Person" }
         return Text(label).font(.caption2).fontWeight(.bold).padding(.horizontal, 6).padding(.vertical, 2).background(color.opacity(0.1)).foregroundColor(color).cornerRadius(4)
+    }
+
+    private func scoreSuggestions(
+        items: [TMDbItem],
+        mediaType: String,
+        engine: LinearPredictionEngine
+    ) -> [(item: TMDbItem, score: Double)] {
+        var scored: [(item: TMDbItem, score: Double)] = []
+        for item in items {
+            let temp = Movie(
+                title: item.displayTitle,
+                year: item.year,
+                tmdbID: item.id,
+                posterPath: item.posterPath,
+                genreIDs: item.genreIds ?? [],
+                mediaType: mediaType,
+                ownerId: userId
+            )
+            let prediction = engine.predict(for: temp, in: context, userId: userId)
+            scored.append((item: item, score: prediction.score))
+        }
+        return scored.sorted { lhs, rhs in lhs.score > rhs.score }
     }
 }
 
@@ -771,7 +842,7 @@ struct SuggestedForYouView: View {
         for score in userScores {
             if let movie = allMovies.first(where: { $0.id == score.movieID }) {
                 if let tmdbId = movie.tmdbID { seenTmdbIds.insert(tmdbId) }
-                for genreId in movie.genreIDs ?? [] {
+                for genreId in movie.genreIDs {
                     genreCount[genreId, default: 0] += 1
                 }
             }
