@@ -470,7 +470,8 @@ struct SearchView: View {
             let prediction = engine.predict(for: temp, in: context, userId: userId)
             scored.append((item, prediction.score))
         }
-        return scored.sorted { $0.score > $1.score }
+        // Sort descending by score using explicit element access to avoid type inference issues
+        return scored.sorted(by: { (lhs: (TMDbItem, Double), rhs: (TMDbItem, Double)) in lhs.1 > rhs.1 })
     }
 }
 
@@ -859,11 +860,14 @@ struct SuggestedForYouView: View {
             let (movieResp, tvResp) = try await (movieTask, tvTask)
 
             // Combine and filter
-            var combined = movieResp.results + tvResp.results
+            var combined: [TMDbItem] = movieResp.results + tvResp.results
+
             combined = combined.filter { !seenTmdbIds.contains($0.id) }
 
             // Sort by popularity and take top 30
-            combined.sort { ($0.popularity ?? 0) > ($1.popularity ?? 0) }
+            combined.sort { (lhs: TMDbItem, rhs: TMDbItem) -> Bool in
+                (lhs.popularity ?? 0) > (rhs.popularity ?? 0)
+            }
             self.suggestions = Array(combined.prefix(30))
         } catch {
             print("Failed to load suggestions: \(error)")
@@ -888,3 +892,4 @@ struct SuggestedForYouView: View {
         14: 10765   // Fantasy -> Sci-Fi & Fantasy
     ]
 }
+

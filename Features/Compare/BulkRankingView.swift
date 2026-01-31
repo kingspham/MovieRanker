@@ -11,6 +11,7 @@ struct BulkRankingView: View {
     @Query private var allUserItems: [UserItem]
     @Query private var allScores: [Score]
     @Query private var allLogs: [LogEntry]
+    @Query private var allMovies: [Movie]
     
     @State private var userId: String = "guest"
     @State private var unrankedItems: [Movie] = []
@@ -270,7 +271,9 @@ struct BulkRankingView: View {
         print("📊 Unranked items found: \(unranked.count)")
         
         // Sort by title (alphabetical) - user can shuffle if they want
-        unranked.sort { $0.title < $1.title }
+        unranked.sort(by: { (lhs: Movie, rhs: Movie) -> Bool in
+            return lhs.title < rhs.title
+        })
         
         self.unrankedItems = unranked
         self.currentIndex = 0
