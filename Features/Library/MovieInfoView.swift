@@ -92,11 +92,13 @@ struct MovieInfoView: View {
 
                 ActionsRowView(
                     hasRanked: hasRanked,
+                    hasLog: myLog != nil,
                     isInWatchlist: isInWatchlist,
                     myLists: myLists,
                     userId: userId,
                     onReRank: handleReRank,
                     onMarkWatched: { if let m = movie { activeSheet = .log(m, myLog) } },
+                    onEditLog: { if let m = movie { activeSheet = .log(m, myLog) } },
                     onSaveToWatchlist: { Task { await saveToWatchlist() } },
                     onAddToList: { list in Task { await addToList(list) } },
                     onCreateList: { showCreateListAlert = true }
@@ -518,13 +520,13 @@ struct MovieInfoView: View {
 
         // Fetch and filter in memory (predicates have issues with captured variables and optional chaining)
         let allLogs = (try? context.fetch(FetchDescriptor<LogEntry>())) ?? []
-        myLog = allLogs.first { $0.movie?.id == movieID && $0.ownerId == userId }
+        myLog = allLogs.first { $0.movie?.id == movieID && ($0.ownerId == userId || $0.ownerId == "guest") }
 
         let allScores = (try? context.fetch(FetchDescriptor<Score>())) ?? []
-        myScore = allScores.first { $0.movieID == movieID && $0.ownerId == userId }
+        myScore = allScores.first { $0.movieID == movieID && ($0.ownerId == userId || $0.ownerId == "guest") }
 
         let allItems = (try? context.fetch(FetchDescriptor<UserItem>())) ?? []
-        let watchlistItems = allItems.filter { $0.movie?.id == movieID && $0.state == .watchlist && $0.ownerId == userId }
+        let watchlistItems = allItems.filter { $0.movie?.id == movieID && $0.state == .watchlist && ($0.ownerId == userId || $0.ownerId == "guest") }
         isInWatchlist = !watchlistItems.isEmpty
     }
 }
@@ -658,11 +660,13 @@ private struct ScoreOrPredictionView: View {
 
 private struct ActionsRowView: View {
     let hasRanked: Bool
+    let hasLog: Bool
     let isInWatchlist: Bool
     let myLists: [CustomList]
     let userId: String
     let onReRank: () -> Void
     let onMarkWatched: () -> Void
+    let onEditLog: () -> Void
     let onSaveToWatchlist: () -> Void
     let onAddToList: (CustomList) -> Void
     let onCreateList: () -> Void
@@ -701,6 +705,10 @@ private struct ActionsRowView: View {
             }
             .disabled(isInWatchlist)
             Menu {
+                if hasLog {
+                    Button { onEditLog() } label: { Label("Edit Log", systemImage: "square.and.pencil") }
+                    Divider()
+                }
                 Text("Add to List")
                 ForEach(myLists.filter { $0.ownerId == userId }) { list in
                     Button { onAddToList(list) } label: { Label(list.name, systemImage: "list.bullet") }
