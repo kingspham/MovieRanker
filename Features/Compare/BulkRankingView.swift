@@ -279,6 +279,24 @@ struct BulkRankingView: View {
         
         print("✅ Loading complete\n")
     }
+
+    private func resolveMovie(from movie: Movie?) -> Movie? {
+        guard let movie else { return nil }
+        if let tmdbID = movie.tmdbID,
+           let canonical = allMovies.first(where: { $0.tmdbID == tmdbID }) {
+            return canonical
+        }
+        let normalizedTitle = movie.titleLower
+        if let canonical = allMovies.first(where: {
+            $0.titleLower == normalizedTitle &&
+            $0.mediaType == movie.mediaType &&
+            ($0.year == nil || movie.year == nil || $0.year == movie.year) &&
+            $0.tmdbID != nil
+        }) {
+            return canonical
+        }
+        return movie
+    }
 }
 
 #Preview {

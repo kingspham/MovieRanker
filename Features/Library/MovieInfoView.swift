@@ -103,6 +103,24 @@ struct MovieInfoView: View {
                     onAddToList: { list in Task { await addToList(list) } },
                     onCreateList: { showCreateListAlert = true }
                 )
+
+                if myLog != nil {
+                    Button {
+                        if let m = movie { activeSheet = .log(m, myLog) }
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "square.and.pencil")
+                            Text("Edit Log Details")
+                        }
+                        .font(.subheadline).bold()
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                        .background(Color.gray.opacity(0.12))
+                        .cornerRadius(10)
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.horizontal)
+                }
                 
                 Divider().padding(.horizontal)
                 
