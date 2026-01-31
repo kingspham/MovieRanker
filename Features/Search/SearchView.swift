@@ -279,7 +279,7 @@ struct SearchView: View {
             #endif
             
             .navigationTitle(query.isEmpty ? "Explore" : "Search")
-            .searchable(text: $query, isPresented: $isSearchFocused, prompt: "Movies, TV, Books, Podcasts...")
+            .searchable(text: $query, isPresented: $isSearchFocused, prompt: "Movies, TV, People, Books, Podcasts...")
             .onChange(of: query) { _, newValue in
                 // Update autocomplete immediately with simple matching (no expensive fuzzy)
                 updateAutocompleteSuggestions()
@@ -314,8 +314,9 @@ struct SearchView: View {
 
             let (tmdbPage, bookResults, podcastResults) = try await (tmdbTask, booksTask, podcastsTask)
             let visualResults = tmdbPage.results.filter { $0.mediaType == "movie" || $0.mediaType == "tv" }
+            let peopleResults = tmdbPage.results.filter { $0.mediaType == "person" }
 
-            self.results = visualResults + bookResults + podcastResults
+            self.results = visualResults + peopleResults + bookResults + podcastResults
             self.hasSearched = true
 
             // Generate fuzzy suggestions if no results
@@ -393,7 +394,20 @@ struct SearchView: View {
     func SearchResultRow(item: TMDbItem) -> some View {
         NavigationLink { destination(for: item) } label: {
             HStack(spacing: 12) {
-                if let path = item.posterPath, path.contains("http") {
+                if item.mediaType == "person" {
+                    if let path = item.posterPath, path.contains("http") {
+                        AsyncImage(url: URL(string: path)) { p in
+                            if let i = p.image { i.resizable().scaledToFill() } else { Color.gray.opacity(0.2) }
+                        }
+                        .frame(width: 48, height: 72)
+                        .cornerRadius(4)
+                    } else {
+                        Image(systemName: "person.fill")
+                            .frame(width: 48, height: 72)
+                            .background(Color.gray.opacity(0.15))
+                            .cornerRadius(4)
+                    }
+                } else if let path = item.posterPath, path.contains("http") {
                     AsyncImage(url: URL(string: path)) { p in if let i = p.image { i.resizable().scaledToFill() } else { Color.gray.opacity(0.2) } }.frame(width: 48, height: 72).cornerRadius(4)
                 } else { PosterThumb(posterPath: item.posterPath, title: item.displayTitle, width: 48) }
                 VStack(alignment: .leading, spacing: 2) {
@@ -417,6 +431,7 @@ struct SearchView: View {
     private func destination(for item: TMDbItem) -> some View {
         if item.mediaType == "book" { BookInfoView(item: item).modelContext(context) }
         else if item.mediaType == "podcast" { PodcastInfoView(item: item).modelContext(context) }
+        else if item.mediaType == "person" { PersonDetailView(personId: item.id, personName: item.displayTitle) }
         else { MovieInfoView(tmdb: item, mediaType: item.mediaType ?? "movie").modelContext(context) }
     }
     
@@ -425,7 +440,30 @@ struct SearchView: View {
         if type == "tv" { color = .blue; label = "TV" }
         else if type == "book" { color = .green; label = "Book" }
         else if type == "podcast" { color = .purple; label = "Podcast" }
+        else if type == "person" { color = .gray; label = "Person" }
         return Text(label).font(.caption2).fontWeight(.bold).padding(.horizontal, 6).padding(.vertical, 2).background(color.opacity(0.1)).foregroundColor(color).cornerRadius(4)
+    }
+
+    private func scoreSuggestions(
+        items: [TMDbItem],
+        mediaType: String,
+        engine: LinearPredictionEngine
+    ) -> [(item: TMDbItem, score: Double)] {
+        var scored: [(TMDbItem, Double)] = []
+        for item in items {
+            let temp = Movie(
+                title: item.displayTitle,
+                year: item.year,
+                tmdbID: item.id,
+                posterPath: item.posterPath,
+                genreIDs: item.genreIds ?? [],
+                mediaType: mediaType,
+                ownerId: userId
+            )
+            let prediction = engine.predict(for: temp, in: context, userId: userId)
+            scored.append((item, prediction.score))
+        }
+        return scored.sorted { $0.score > $1.score }
     }
 }
 
