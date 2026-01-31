@@ -35,6 +35,7 @@ struct SearchView: View {
 
     // Get known titles from local library for suggestions (cached to avoid repeated fetches)
     @Query private var allMovies: [Movie]
+    private var localTitles: [String] { allMovies.map(\.title) }
 
     // Simplified autocomplete - fast, no expensive fuzzy matching during typing
     private func updateAutocompleteSuggestions() {
@@ -353,7 +354,7 @@ struct SearchView: View {
         for score in userScores {
             if let movie = allMovies.first(where: { $0.id == score.movieID }) {
                 if let tmdbId = movie.tmdbID { seenTmdbIds.insert(tmdbId) }
-                for genreId in movie.genreIDs ?? [] {
+                for genreId in movie.genreIDs {
                     genreCount[genreId, default: 0] += 1
                 }
             }
@@ -771,7 +772,7 @@ struct SuggestedForYouView: View {
         for score in userScores {
             if let movie = allMovies.first(where: { $0.id == score.movieID }) {
                 if let tmdbId = movie.tmdbID { seenTmdbIds.insert(tmdbId) }
-                for genreId in movie.genreIDs ?? [] {
+                for genreId in movie.genreIDs {
                     genreCount[genreId, default: 0] += 1
                 }
             }
