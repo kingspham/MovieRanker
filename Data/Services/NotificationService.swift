@@ -56,6 +56,7 @@ final class NotificationService: ObservableObject {
         }
 
         lastFetchTime = Date()
+        print("🔔 Fetching notifications for user: \(myId)")
 
         // Try multiple query patterns for robustness
         let queries: [(String, String, String)] = [
@@ -80,12 +81,15 @@ final class NotificationService: ObservableObject {
                 self.lastFetchFailed = false
                 self.consecutiveFailures = 0
                 print("✅ Fetched \(response.count) notifications \(name) (\(self.unreadCount) unread)")
+
+                // Debug: print first few notifications
+                for (index, notif) in response.prefix(3).enumerated() {
+                    print("  📬 [\(index)]: \(notif.type) - \(notif.message) - read: \(notif.read)")
+                }
+
                 return // Success, exit loop
             } catch {
-                // Only log on first failure to reduce spam
-                if consecutiveFailures == 0 {
-                    print("⚠️ Notification fetch \(name) failed: \(error.localizedDescription)")
-                }
+                print("⚠️ Notification fetch \(name) failed: \(error)")
                 continue // Try next query pattern
             }
         }
@@ -123,9 +127,7 @@ final class NotificationService: ObservableObject {
         // All patterns failed
         self.lastFetchFailed = true
         self.consecutiveFailures += 1
-        if consecutiveFailures == 1 {
-            print("❌ All notification fetch patterns failed - backing off")
-        }
+        print("❌ All notification fetch patterns failed (attempt \(consecutiveFailures)) - backing off")
     }
     
     func markAllRead() async {
@@ -136,8 +138,14 @@ final class NotificationService: ObservableObject {
     }
     
     func sendNotification(to userId: UUID, type: String, message: String, relatedId: UUID?) async {
-        guard let myId = client.auth.currentUser?.id, userId != myId else {
-            print("⚠️ Skipping self-notification or no user ID")
+        guard let myId = client.auth.currentUser?.id else {
+            print("⚠️ Cannot send notification: no current user")
+            return
+        }
+
+        // Don't send notifications to yourself
+        if userId == myId {
+            print("⚠️ Skipping self-notification")
             return
         }
 
@@ -147,17 +155,31 @@ final class NotificationService: ObservableObject {
             let type: String
             let message: String
             let related_id: UUID?
+            let read: Bool
         }
 
-        let payload = Payload(user_id: userId, actor_id: myId, type: type, message: message, related_id: relatedId)
+        let payload = Payload(
+            user_id: userId,
+            actor_id: myId,
+            type: type,
+            message: message,
+            related_id: relatedId,
+            read: false
+        )
+
+        print("📤 Sending notification: type=\(type), to=\(userId), from=\(myId)")
+
         do {
             _ = try await AuthService.shared.client.from("notifications").insert(payload).execute()
-            print("✅ Sent notification: \(type) to \(userId)")
+            print("✅ Notification sent successfully: \(type) to \(userId)")
         } catch {
             // More detailed error logging
             print("❌ Notification insert failed: \(error)")
-            print("   Payload: user_id=\(userId), actor_id=\(myId), type=\(type)")
-            print("   This may indicate the 'notifications' table doesn't exist or has RLS issues")
+            print("   Payload: user_id=\(userId), actor_id=\(myId), type=\(type), message=\(message)")
+            print("   This may indicate:")
+            print("     - The 'notifications' table doesn't exist in Supabase")
+            print("     - RLS (Row Level Security) policies are blocking the insert")
+            print("     - The table schema doesn't match the Payload structure")
         }
     }
 }

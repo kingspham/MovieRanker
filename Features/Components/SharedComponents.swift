@@ -72,21 +72,23 @@ struct SafariView: View {
 
 // 4. The Stat Card
 struct StatCard: View {
+    @Environment(\.colorScheme) private var colorScheme
+
     let value: String
     let label: String
     let icon: String
     let color: Color
-    
+
     var body: some View {
         VStack(spacing: 8) {
             Image(systemName: icon)
                 .font(.title2)
                 .foregroundStyle(color)
-            
+
             Text(value)
                 .font(.title3)
                 .fontWeight(.heavy)
-            
+
             Text(label)
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -94,12 +96,12 @@ struct StatCard: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 16)
-        .background(Color.white)
+        .background(Color(uiColor: colorScheme == .dark ? .secondarySystemBackground : .systemBackground))
         .cornerRadius(16)
-        .shadow(color: Color.black.opacity(0.05), radius: 5, x: 0, y: 2)
+        .shadow(color: Color.black.opacity(colorScheme == .dark ? 0.3 : 0.05), radius: 5, x: 0, y: 2)
         .overlay(
             RoundedRectangle(cornerRadius: 16)
-                .stroke(Color.gray.opacity(0.1), lineWidth: 1)
+                .stroke(Color.gray.opacity(colorScheme == .dark ? 0.3 : 0.1), lineWidth: 1)
         )
     }
 }

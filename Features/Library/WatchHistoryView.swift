@@ -190,7 +190,6 @@ struct WatchHistoryView: View {
             }
             .listStyle(.plain)
         }
-        .navigationTitle("Watch History")
         .searchable(text: $searchText)
         .task {
             userId = AuthService.shared.currentUserId() ?? "guest"

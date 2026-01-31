@@ -226,6 +226,42 @@ struct SearchView: View {
                         }
                     }
 
+                    // Suggested Movies (high predicted score movies)
+                    if !suggestedMovies.isEmpty {
+                        Section(header: HStack {
+                            Text("🎬 Suggested Movies")
+                            Spacer()
+                            NavigationLink("See All") {
+                                SuggestedMediaView(userId: userId, mediaType: "movie")
+                            }
+                            .font(.caption)
+                        }) {
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                HStack(spacing: 16) {
+                                    ForEach(suggestedMovies, id: \.id) { m in DiscoveryCard(item: m) }
+                                }.padding(.vertical, 8)
+                            }.listRowInsets(EdgeInsets())
+                        }
+                    }
+
+                    // Suggested Shows (high predicted score TV shows)
+                    if !suggestedShows.isEmpty {
+                        Section(header: HStack {
+                            Text("📺 Suggested Shows")
+                            Spacer()
+                            NavigationLink("See All") {
+                                SuggestedMediaView(userId: userId, mediaType: "tv")
+                            }
+                            .font(.caption)
+                        }) {
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                HStack(spacing: 16) {
+                                    ForEach(suggestedShows, id: \.id) { m in DiscoveryCard(item: m) }
+                                }.padding(.vertical, 8)
+                            }.listRowInsets(EdgeInsets())
+                        }
+                    }
+
                     if !trending.isEmpty {
                         Section(header: Text("🔥 Trending Today")) {
                             ScrollView(.horizontal, showsIndicators: false) {
@@ -347,6 +383,33 @@ struct SearchView: View {
         } catch { print("Search Error: \(error)") }
         isLoading = false
     }
+
+    /// Reorder search results to prioritize persons when query looks like a name
+    private func reorderSearchResults(_ results: [TMDbItem], query: String) -> [TMDbItem] {
+        let queryLower = query.lowercased()
+
+        // Common title keywords that suggest user is searching for a title, not a person
+        let titleKeywords = ["the ", "movie", "show", "series", "season", "part", "episode", "vol", "2", "3", "ii", "iii"]
+        let looksLikeTitle = titleKeywords.contains { queryLower.contains($0) }
+
+        // If query looks like a title, keep original order
+        if looksLikeTitle {
+            return results
+        }
+
+        // Otherwise, check if query looks like a person name (2-3 words, no numbers)
+        let words = query.split(separator: " ")
+        let looksLikeName = words.count >= 2 && words.count <= 4 && !query.contains(where: { $0.isNumber })
+
+        if looksLikeName {
+            // Put persons first, sorted by popularity, then other results
+            let persons = results.filter { $0.mediaType == "person" }.sorted { ($0.popularity ?? 0) > ($1.popularity ?? 0) }
+            let others = results.filter { $0.mediaType != "person" }
+            return persons + others
+        }
+
+        return results
+    }
     
     private func loadDiscovery() async {
         do {
@@ -384,6 +447,14 @@ struct SearchView: View {
 
         guard !topGenres.isEmpty else { return }
 
+        // Map movie genre IDs to TV genre IDs (some differ)
+        let movieGenreToTVGenre: [Int: Int] = [
+            28: 10759,  // Action -> Action & Adventure
+            12: 10759,  // Adventure -> Action & Adventure
+            878: 10765, // Sci-Fi -> Sci-Fi & Fantasy
+            14: 10765   // Fantasy -> Sci-Fi & Fantasy
+        ]
+
         do {
             async let movieTask = client.discoverByGenres(genreIds: Array(topGenres))
             async let tvTask = client.discoverTVByGenres(genreIds: Array(topGenres))
@@ -416,7 +487,9 @@ struct SearchView: View {
                     }
                 } else if let path = item.posterPath, path.contains("http") {
                     AsyncImage(url: URL(string: path)) { p in if let i = p.image { i.resizable().scaledToFill() } else { Color.gray.opacity(0.2) } }.frame(width: 48, height: 72).cornerRadius(4)
-                } else { PosterThumb(posterPath: item.posterPath, title: item.displayTitle, width: 48) }
+                } else {
+                    PosterThumb(posterPath: item.posterPath, title: item.displayTitle, width: 48)
+                }
                 VStack(alignment: .leading, spacing: 2) {
                     Text(item.displayTitle).font(.headline)
                     HStack(spacing: 6) { Badge(type: item.mediaType ?? "movie"); if let y = item.year { Text(String(y)).font(.caption).foregroundStyle(.secondary) } }
@@ -441,7 +514,7 @@ struct SearchView: View {
         else if item.mediaType == "person" { PersonDetailView(personId: item.id, personName: item.displayTitle) }
         else { MovieInfoView(tmdb: item, mediaType: item.mediaType ?? "movie").modelContext(context) }
     }
-    
+
     func Badge(type: String) -> some View {
         var color: Color = .orange; var label = "Movie"
         if type == "tv" { color = .blue; label = "TV" }
