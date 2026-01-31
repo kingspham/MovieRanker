@@ -250,8 +250,15 @@ struct LogSheet: View {
         }
         
         try? context.save()
-        dismiss()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { showRanking = true }
+
+        // Set showRanking BEFORE dismiss so the parent can react while the binding is still active
+        // The parent's binding setter will trigger the ranking sheet to open
+        showRanking = true
+
+        // Small delay to allow the binding to propagate before dismissing
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            dismiss()
+        }
     }
 }
 

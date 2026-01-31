@@ -11,19 +11,22 @@ public struct TMDbItem: Decodable, Sendable, Identifiable, Hashable {
     public let posterPath: String?
     public let genreIds: [Int]?
     public let mediaType: String?
-    
+
+    // Person-specific field (profile image)
+    public let profilePath: String?
+
     // Default to nil for optional fields that don't come from TMDb
     public var tags: [String]? = nil
-    
+
     private let title: String?
     private let name: String?
     private let releaseDate: String?
     private let firstAirDate: String?
-    
+
     // Added popularity for sorting
     public let popularity: Double?
-    
-    public init(id: Int, title: String? = nil, name: String? = nil, overview: String? = nil, releaseDate: String? = nil, firstAirDate: String? = nil, posterPath: String? = nil, genreIds: [Int]? = nil, tags: [String]? = nil, mediaType: String? = "movie", popularity: Double? = nil) {
+
+    public init(id: Int, title: String? = nil, name: String? = nil, overview: String? = nil, releaseDate: String? = nil, firstAirDate: String? = nil, posterPath: String? = nil, profilePath: String? = nil, genreIds: [Int]? = nil, tags: [String]? = nil, mediaType: String? = "movie", popularity: Double? = nil) {
         self.id = id
         self.title = title
         self.name = name
@@ -31,26 +34,33 @@ public struct TMDbItem: Decodable, Sendable, Identifiable, Hashable {
         self.releaseDate = releaseDate
         self.firstAirDate = firstAirDate
         self.posterPath = posterPath
+        self.profilePath = profilePath
         self.genreIds = genreIds
         self.tags = tags
         self.mediaType = mediaType
         self.popularity = popularity
     }
-    
+
     public var displayTitle: String { title ?? name ?? "Unknown" }
     public var year: Int? {
         let ds = releaseDate ?? firstAirDate
         guard let s = ds, s.count >= 4, let y = Int(s.prefix(4)) else { return nil }
         return y
     }
-    
+
+    /// Returns the best available image path (posterPath for movies/shows, profilePath for people)
+    public var imagePath: String? {
+        posterPath ?? profilePath
+    }
+
     public func type(fallback: String) -> String { mediaType ?? fallback }
-    
+
     private enum CodingKeys: String, CodingKey {
         case id, title, name, overview, popularity
         case releaseDate = "release_date"
         case firstAirDate = "first_air_date"
         case posterPath  = "poster_path"
+        case profilePath = "profile_path"
         case genreIds    = "genre_ids"
         case mediaType   = "media_type"
     }
