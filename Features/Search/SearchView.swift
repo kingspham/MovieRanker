@@ -410,10 +410,6 @@ struct SearchView: View {
         let topGenres = genreCount.sorted { $0.value > $1.value }.prefix(3).map { $0.key }
         guard !topGenres.isEmpty else { return }
 
-        let movieGenreToTVGenre: [Int: Int] = [
-            28: 10759, 12: 10759, 878: 10765, 14: 10765
-        ]
-
         do {
             async let movieTask = client.discoverByGenres(genreIds: Array(topGenres))
             async let tvTask = client.discoverTVByGenres(genreIds: Array(topGenres))
