@@ -227,14 +227,7 @@ struct SearchView: View {
 
                     // Suggested Movies (high predicted score movies)
                     if !suggestedMovies.isEmpty {
-                        Section(header: HStack {
-                            Text("🎬 Suggested Movies")
-                            Spacer()
-                            NavigationLink("See All") {
-                                SuggestedMediaView(userId: userId, mediaType: "movie")
-                            }
-                            .font(.caption)
-                        }) {
+                        Section(header: Text("🎬 Suggested Movies")) {
                             ScrollView(.horizontal, showsIndicators: false) {
                                 HStack(spacing: 16) {
                                     ForEach(suggestedMovies, id: \.id) { m in DiscoveryCard(item: m) }
@@ -245,14 +238,7 @@ struct SearchView: View {
 
                     // Suggested Shows (high predicted score TV shows)
                     if !suggestedShows.isEmpty {
-                        Section(header: HStack {
-                            Text("📺 Suggested Shows")
-                            Spacer()
-                            NavigationLink("See All") {
-                                SuggestedMediaView(userId: userId, mediaType: "tv")
-                            }
-                            .font(.caption)
-                        }) {
+                        Section(header: Text("📺 Suggested Shows")) {
                             ScrollView(.horizontal, showsIndicators: false) {
                                 HStack(spacing: 16) {
                                     ForEach(suggestedShows, id: \.id) { m in DiscoveryCard(item: m) }
@@ -423,10 +409,6 @@ struct SearchView: View {
 
         let topGenres = genreCount.sorted { $0.value > $1.value }.prefix(3).map { $0.key }
         guard !topGenres.isEmpty else { return }
-
-        let movieGenreToTVGenre: [Int: Int] = [
-            28: 10759, 12: 10759, 878: 10765, 14: 10765
-        ]
 
         do {
             async let movieTask = client.discoverByGenres(genreIds: Array(topGenres))
@@ -797,4 +779,3 @@ struct SuggestedForYouView: View {
         isLoading = false
     }
 }
-

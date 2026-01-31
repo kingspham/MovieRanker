@@ -74,7 +74,7 @@ public struct TMDbItem: Decodable, Sendable, Identifiable, Hashable {
         releaseDate = try container.decodeIfPresent(String.self, forKey: .releaseDate)
         firstAirDate = try container.decodeIfPresent(String.self, forKey: .firstAirDate)
         posterPath = try container.decodeIfPresent(String.self, forKey: .posterPath)
-            ?? container.decodeIfPresent(String.self, forKey: .profilePath)
+        profilePath = try container.decodeIfPresent(String.self, forKey: .profilePath)
         genreIds = try container.decodeIfPresent([Int].self, forKey: .genreIds)
         mediaType = try container.decodeIfPresent(String.self, forKey: .mediaType)
         popularity = try container.decodeIfPresent(Double.self, forKey: .popularity)
