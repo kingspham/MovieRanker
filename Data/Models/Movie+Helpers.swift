@@ -13,6 +13,18 @@ extension Movie {
         if let existing = allMovies.first(where: { $0.tmdbID == targetID }) {
             return existing
         }
+
+        let normalizedTitle = item.displayTitle.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        if let existingByTitle = allMovies.first(where: {
+            $0.mediaType == type &&
+            $0.titleLower == normalizedTitle &&
+            (item.year == nil || $0.year == item.year)
+        }) {
+            if existingByTitle.tmdbID == nil {
+                existingByTitle.tmdbID = targetID
+            }
+            return existingByTitle
+        }
         
         // 2. Create New
         let newItem = Movie(
