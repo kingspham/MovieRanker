@@ -11,7 +11,6 @@ struct BulkRankingView: View {
     @Query private var allUserItems: [UserItem]
     @Query private var allScores: [Score]
     @Query private var allLogs: [LogEntry]
-    @Query private var allMovies: [Movie]
     
     @State private var userId: String = "guest"
     @State private var unrankedItems: [Movie] = []
@@ -244,7 +243,7 @@ struct BulkRankingView: View {
         var seenKeys = Set<String>()
         
         for log in seenLogs {
-            guard let movie = resolveMovie(from: log.movie) else { continue }
+            guard let movie = log.movie else { continue }
             let isRanked = rankedMovieIDs.contains(movie.id)
             if isRanked { continue }
             
@@ -283,18 +282,18 @@ struct BulkRankingView: View {
 
     private func resolveMovie(from movie: Movie?) -> Movie? {
         guard let movie else { return nil }
-        if let tmdbID = movie.tmdbID {
-            for candidate in allMovies where candidate.tmdbID == tmdbID {
-                return candidate
-            }
+        if let tmdbID = movie.tmdbID,
+           let canonical = allMovies.first(where: { $0.tmdbID == tmdbID }) {
+            return canonical
         }
         let normalizedTitle = movie.titleLower
-        for candidate in allMovies {
-            if candidate.titleLower != normalizedTitle { continue }
-            if candidate.mediaType != movie.mediaType { continue }
-            if let candidateYear = candidate.year, let movieYear = movie.year, candidateYear != movieYear { continue }
-            if candidate.tmdbID == nil { continue }
-            return candidate
+        if let canonical = allMovies.first(where: {
+            $0.titleLower == normalizedTitle &&
+            $0.mediaType == movie.mediaType &&
+            ($0.year == nil || movie.year == nil || $0.year == movie.year) &&
+            $0.tmdbID != nil
+        }) {
+            return canonical
         }
         return movie
     }

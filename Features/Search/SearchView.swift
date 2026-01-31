@@ -390,19 +390,8 @@ struct SearchView: View {
             let (movieResponse, tvResponse) = try await (movieTask, tvTask)
             let movieSuggestions = movieResponse.results.filter { !seenTmdbIds.contains($0.id) }
             let tvSuggestions = tvResponse.results.filter { !seenTmdbIds.contains($0.id) }
-            let engine = LinearPredictionEngine()
-            let scoredMovies = scoreSuggestions(
-                items: Array(movieSuggestions.prefix(30)),
-                mediaType: "movie",
-                engine: engine
-            )
-            let scoredShows = scoreSuggestions(
-                items: Array(tvSuggestions.prefix(30)),
-                mediaType: "tv",
-                engine: engine
-            )
-            self.suggestedMovies = scoredMovies.filter { $0.score >= 7.0 }.prefix(10).map { $0.item }
-            self.suggestedShows = scoredShows.filter { $0.score >= 7.0 }.prefix(10).map { $0.item }
+            self.suggestedMovies = Array(movieSuggestions.prefix(10))
+            self.suggestedShows = Array(tvSuggestions.prefix(10))
         } catch {
             print("Suggestions Error: \(error)")
         }
@@ -467,7 +456,7 @@ struct SearchView: View {
         mediaType: String,
         engine: LinearPredictionEngine
     ) -> [(item: TMDbItem, score: Double)] {
-        var scored: [(item: TMDbItem, score: Double)] = []
+        var scored: [(TMDbItem, Double)] = []
         for item in items {
             let temp = Movie(
                 title: item.displayTitle,
@@ -479,9 +468,9 @@ struct SearchView: View {
                 ownerId: userId
             )
             let prediction = engine.predict(for: temp, in: context, userId: userId)
-            scored.append((item: item, score: prediction.score))
+            scored.append((item, prediction.score))
         }
-        return scored.sorted { lhs, rhs in lhs.score > rhs.score }
+        return scored.sorted { $0.score > $1.score }
     }
 }
 

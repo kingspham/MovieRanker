@@ -35,15 +35,7 @@ struct AppNotification: Decodable, Identifiable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(UUID.self, forKey: .id)
         type = try container.decode(String.self, forKey: .type)
-        if let value = try container.decodeIfPresent(String.self, forKey: .message) {
-            message = value
-        } else if let value = try container.decodeIfPresent(String.self, forKey: .body) {
-            message = value
-        } else if let value = try container.decodeIfPresent(String.self, forKey: .text) {
-            message = value
-        } else {
-            message = "sent you a notification"
-        }
+        message = try container.decode(String.self, forKey: .message)
         read = try container.decode(Bool.self, forKey: .read)
         actorId = try container.decode(UUID.self, forKey: .actorId)
         relatedId = try container.decodeIfPresent(UUID.self, forKey: .relatedId)

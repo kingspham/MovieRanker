@@ -61,9 +61,7 @@ final class NotificationService: ObservableObject {
         let queries: [(String, String, String)] = [
             ("with foreign key join", "*, profiles!notifications_actor_id_fkey(*)", "user_id"),
             ("with simple join", "*, profiles(*)", "user_id"),
-            ("without join message", "id, user_id, actor_id, type, message, related_id, read, created_at", "user_id"),
-            ("without join body", "id, user_id, actor_id, type, body, related_id, read, created_at", "user_id"),
-            ("without join text", "id, user_id, actor_id, type, text, related_id, read, created_at", "user_id")
+            ("without join", "id, user_id, actor_id, type, message, related_id, read, created_at", "user_id")
         ]
 
         for (name, selectQuery, userColumn) in queries {
@@ -94,9 +92,7 @@ final class NotificationService: ObservableObject {
 
         let recipientQueries: [(String, String)] = [
             ("with recipient join", "*, profiles!notifications_actor_id_fkey(*)"),
-            ("without join recipient message", "id, recipient_id, actor_id, type, message, related_id, read, created_at"),
-            ("without join recipient body", "id, recipient_id, actor_id, type, body, related_id, read, created_at"),
-            ("without join recipient text", "id, recipient_id, actor_id, type, text, related_id, read, created_at")
+            ("without join recipient", "id, recipient_id, actor_id, type, message, related_id, read, created_at")
         ]
 
         for (name, selectQuery) in recipientQueries {
