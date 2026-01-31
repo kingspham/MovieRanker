@@ -51,8 +51,24 @@ public struct TMDbItem: Decodable, Sendable, Identifiable, Hashable {
         case releaseDate = "release_date"
         case firstAirDate = "first_air_date"
         case posterPath  = "poster_path"
+        case profilePath = "profile_path"
         case genreIds    = "genre_ids"
         case mediaType   = "media_type"
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(Int.self, forKey: .id)
+        title = try container.decodeIfPresent(String.self, forKey: .title)
+        name = try container.decodeIfPresent(String.self, forKey: .name)
+        overview = try container.decodeIfPresent(String.self, forKey: .overview)
+        releaseDate = try container.decodeIfPresent(String.self, forKey: .releaseDate)
+        firstAirDate = try container.decodeIfPresent(String.self, forKey: .firstAirDate)
+        posterPath = try container.decodeIfPresent(String.self, forKey: .posterPath)
+            ?? container.decodeIfPresent(String.self, forKey: .profilePath)
+        genreIds = try container.decodeIfPresent([Int].self, forKey: .genreIds)
+        mediaType = try container.decodeIfPresent(String.self, forKey: .mediaType)
+        popularity = try container.decodeIfPresent(Double.self, forKey: .popularity)
     }
 }
 
