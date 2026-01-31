@@ -13,7 +13,8 @@ struct SearchView: View {
     @State private var trending: [TMDbItem] = []
     @State private var inTheaters: [TMDbItem] = []
     @State private var streaming: [TMDbItem] = []
-    @State private var suggestedForYou: [TMDbItem] = []
+    @State private var suggestedMovies: [TMDbItem] = []
+    @State private var suggestedShows: [TMDbItem] = []
 
     // Query user's scores for personalized suggestions
     @Query private var allScores: [Score]
@@ -35,6 +36,7 @@ struct SearchView: View {
 
     // Get known titles from local library for suggestions (cached to avoid repeated fetches)
     @Query private var allMovies: [Movie]
+    private var localTitles: [String] { allMovies.map(\.title) }
 
     // Simplified autocomplete - fast, no expensive fuzzy matching during typing
     private func updateAutocompleteSuggestions() {
@@ -196,10 +198,10 @@ struct SearchView: View {
                 }
                 // MARK: - DISCOVERY
                 else {
-                    // Suggested For You (personalized based on user's taste)
-                    if !suggestedForYou.isEmpty {
+                    // Suggested Movies (personalized based on user's taste)
+                    if !suggestedMovies.isEmpty {
                         Section(header: HStack {
-                            Text("✨ Suggested For You")
+                            Text("✨ Suggested Movies")
                             Spacer()
                             NavigationLink("See All") {
                                 SuggestedForYouView(userId: userId)
@@ -208,7 +210,17 @@ struct SearchView: View {
                         }) {
                             ScrollView(.horizontal, showsIndicators: false) {
                                 HStack(spacing: 16) {
-                                    ForEach(suggestedForYou, id: \.id) { m in DiscoveryCard(item: m) }
+                                    ForEach(suggestedMovies, id: \.id) { m in DiscoveryCard(item: m) }
+                                }.padding(.vertical, 8)
+                            }.listRowInsets(EdgeInsets())
+                        }
+                    }
+
+                    if !suggestedShows.isEmpty {
+                        Section(header: Text("✨ Suggested Shows")) {
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                HStack(spacing: 16) {
+                                    ForEach(suggestedShows, id: \.id) { m in DiscoveryCard(item: m) }
                                 }.padding(.vertical, 8)
                             }.listRowInsets(EdgeInsets())
                         }
@@ -353,7 +365,7 @@ struct SearchView: View {
         for score in userScores {
             if let movie = allMovies.first(where: { $0.id == score.movieID }) {
                 if let tmdbId = movie.tmdbID { seenTmdbIds.insert(tmdbId) }
-                for genreId in movie.genreIDs ?? [] {
+                for genreId in movie.genreIDs {
                     genreCount[genreId, default: 0] += 1
                 }
             }
@@ -365,10 +377,13 @@ struct SearchView: View {
         guard !topGenres.isEmpty else { return }
 
         do {
-            let response = try await client.discoverByGenres(genreIds: Array(topGenres))
-            // Filter out already seen movies
-            let suggestions = response.results.filter { !seenTmdbIds.contains($0.id) }
-            self.suggestedForYou = Array(suggestions.prefix(10))
+            async let movieTask = client.discoverByGenres(genreIds: Array(topGenres))
+            async let tvTask = client.discoverTVByGenres(genreIds: Array(topGenres))
+            let (movieResponse, tvResponse) = try await (movieTask, tvTask)
+            let movieSuggestions = movieResponse.results.filter { !seenTmdbIds.contains($0.id) }
+            let tvSuggestions = tvResponse.results.filter { !seenTmdbIds.contains($0.id) }
+            self.suggestedMovies = Array(movieSuggestions.prefix(10))
+            self.suggestedShows = Array(tvSuggestions.prefix(10))
         } catch {
             print("Suggestions Error: \(error)")
         }
@@ -771,7 +786,7 @@ struct SuggestedForYouView: View {
         for score in userScores {
             if let movie = allMovies.first(where: { $0.id == score.movieID }) {
                 if let tmdbId = movie.tmdbID { seenTmdbIds.insert(tmdbId) }
-                for genreId in movie.genreIDs ?? [] {
+                for genreId in movie.genreIDs {
                     genreCount[genreId, default: 0] += 1
                 }
             }
