@@ -307,6 +307,13 @@ struct SearchView: View {
             recentSearchStore.add(searchQuery)
         }
 
+        guard searchQuery.count >= 2 else {
+            results = []
+            hasSearched = false
+            isLoading = false
+            return
+        }
+
         do {
             async let tmdbTask = TMDbClient().searchMulti(query: query)
             async let booksTask = BooksAPI().searchBooks(query: query)

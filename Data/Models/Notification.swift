@@ -22,7 +22,7 @@ struct AppNotification: Decodable, Identifiable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, type, message, read
+        case id, type, message, body, text, read
         case userId = "user_id"
         case recipientId = "recipient_id"
         case actorId = "actor_id"
