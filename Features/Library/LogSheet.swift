@@ -173,7 +173,7 @@ struct LogSheet: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Next: Rank") { saveLog() }.bold()
+                    Button(existingLog == nil ? "Next: Rank" : "Save") { saveLog() }.bold()
                 }
             }
             .task {
@@ -250,14 +250,9 @@ struct LogSheet: View {
         }
         
         try? context.save()
-
-        // Set showRanking BEFORE dismiss so the parent can react while the binding is still active
-        // The parent's binding setter will trigger the ranking sheet to open
-        showRanking = true
-
-        // Small delay to allow the binding to propagate before dismissing
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-            dismiss()
+        dismiss()
+        if existingLog == nil {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { showRanking = true }
         }
     }
 }
