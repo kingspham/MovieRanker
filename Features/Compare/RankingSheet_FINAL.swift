@@ -424,6 +424,21 @@ struct RankingSheet: View {
                 await UserItemService.shared.uploadUserItem(item, movie: newMovie)
                 print("✅ Uploaded seen status for \(newMovie.title)")
             }
+
+            // 4. Recalculate badges (may trigger unlock popup)
+            await recalculateBadgesAfterRanking()
+        }
+    }
+
+    private func recalculateBadgesAfterRanking() async {
+        let allLogs = (try? context.fetch(FetchDescriptor<LogEntry>())) ?? []
+        let myLogs = allLogs.filter { $0.ownerId == userId }
+        let inputs = myLogs.compactMap { log -> BadgeInput? in
+            guard let movie = log.movie else { return nil }
+            return BadgeInput(watchedOn: log.watchedOn, genreIDs: movie.genreIDs)
+        }
+        await MainActor.run {
+            BadgeService.shared.recalculateAfterRanking(inputs: inputs)
         }
     }
 }

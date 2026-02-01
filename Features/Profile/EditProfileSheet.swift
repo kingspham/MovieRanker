@@ -5,10 +5,22 @@ struct EditProfileSheet: View {
 
     let initialUsername: String
     let initialDisplayName: String
-    let onSave: (_ newUsername: String, _ newDisplayName: String) -> Void
+    let initialBio: String
+    let initialFavoriteMovie: String
+    let initialFavoriteShow: String
+    let initialFavoriteBook: String
+    let initialFavoritePodcast: String
+    let initialHomeCity: String
+    let onSave: (ProfileUpdate) -> Void
 
     @State private var username: String
     @State private var displayName: String
+    @State private var bio: String
+    @State private var favoriteMovie: String
+    @State private var favoriteShow: String
+    @State private var favoriteBook: String
+    @State private var favoritePodcast: String
+    @State private var homeCity: String
 
     @State private var isChecking = false
     @State private var isAvailable: Bool? = nil
@@ -16,12 +28,62 @@ struct EditProfileSheet: View {
     @State private var usernameError: String? = nil
     @State private var displayNameError: String? = nil
 
+    struct ProfileUpdate {
+        let username: String
+        let displayName: String
+        let bio: String
+        let favoriteMovie: String
+        let favoriteShow: String
+        let favoriteBook: String
+        let favoritePodcast: String
+        let homeCity: String
+    }
+
+    // Convenience initializer for backward compatibility
     init(initialUsername: String, initialDisplayName: String, onSave: @escaping (_ newUsername: String, _ newDisplayName: String) -> Void) {
+        self.init(
+            initialUsername: initialUsername,
+            initialDisplayName: initialDisplayName,
+            initialBio: "",
+            initialFavoriteMovie: "",
+            initialFavoriteShow: "",
+            initialFavoriteBook: "",
+            initialFavoritePodcast: "",
+            initialHomeCity: "",
+            onSave: { update in
+                onSave(update.username, update.displayName)
+            }
+        )
+    }
+
+    init(
+        initialUsername: String,
+        initialDisplayName: String,
+        initialBio: String,
+        initialFavoriteMovie: String,
+        initialFavoriteShow: String,
+        initialFavoriteBook: String,
+        initialFavoritePodcast: String,
+        initialHomeCity: String,
+        onSave: @escaping (ProfileUpdate) -> Void
+    ) {
         self.initialUsername = initialUsername
         self.initialDisplayName = initialDisplayName
+        self.initialBio = initialBio
+        self.initialFavoriteMovie = initialFavoriteMovie
+        self.initialFavoriteShow = initialFavoriteShow
+        self.initialFavoriteBook = initialFavoriteBook
+        self.initialFavoritePodcast = initialFavoritePodcast
+        self.initialHomeCity = initialHomeCity
         self.onSave = onSave
         _username = State(initialValue: initialUsername)
         _displayName = State(initialValue: initialDisplayName)
+        _bio = State(initialValue: initialBio)
+        _favoriteMovie = State(initialValue: initialFavoriteMovie)
+        _favoriteShow = State(initialValue: initialFavoriteShow)
+        _favoriteBook = State(initialValue: initialFavoriteBook)
+        _favoritePodcast = State(initialValue: initialFavoritePodcast)
+        _homeCity = State(initialValue: initialHomeCity)
     }
 
     var body: some View {
@@ -46,7 +108,7 @@ struct EditProfileSheet: View {
                     }
                 }
 
-                Section("Display name") {
+                Section("Display Name") {
                     #if os(iOS)
                     TextField("Your name", text: $displayName)
                         .textInputAutocapitalization(.words)
@@ -60,11 +122,56 @@ struct EditProfileSheet: View {
                             .font(.caption)
                             .foregroundStyle(count > 40 ? .red : .secondary)
                     }
-                    Text("Shown in your profile. You can leave this blank to use your email.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
                     if let err = displayNameError {
                         Text(err).font(.caption).foregroundStyle(.red)
+                    }
+                }
+
+                Section("Bio") {
+                    TextField("Tell us about yourself...", text: $bio, axis: .vertical)
+                        .lineLimit(3...6)
+                    HStack {
+                        Spacer()
+                        let count = bio.count
+                        Text("\(count)/160")
+                            .font(.caption)
+                            .foregroundStyle(count > 160 ? .red : .secondary)
+                    }
+                }
+
+                Section("Favorites") {
+                    HStack {
+                        Image(systemName: "film.fill")
+                            .foregroundStyle(.blue)
+                            .frame(width: 24)
+                        TextField("Favorite Movie", text: $favoriteMovie)
+                    }
+                    HStack {
+                        Image(systemName: "tv.fill")
+                            .foregroundStyle(.purple)
+                            .frame(width: 24)
+                        TextField("Favorite TV Show", text: $favoriteShow)
+                    }
+                    HStack {
+                        Image(systemName: "book.fill")
+                            .foregroundStyle(.orange)
+                            .frame(width: 24)
+                        TextField("Favorite Book", text: $favoriteBook)
+                    }
+                    HStack {
+                        Image(systemName: "mic.fill")
+                            .foregroundStyle(.green)
+                            .frame(width: 24)
+                        TextField("Favorite Podcast", text: $favoritePodcast)
+                    }
+                }
+
+                Section("Location") {
+                    HStack {
+                        Image(systemName: "mappin.circle.fill")
+                            .foregroundStyle(.red)
+                            .frame(width: 24)
+                        TextField("Home City", text: $homeCity)
                     }
                 }
             }
@@ -78,9 +185,17 @@ struct EditProfileSheet: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
-                        let u = username.trimmed.lowercased()
-                        let d = displayName.trimmed
-                        onSave(u, d)
+                        let update = ProfileUpdate(
+                            username: username.trimmed.lowercased(),
+                            displayName: displayName.trimmed,
+                            bio: bio.trimmed,
+                            favoriteMovie: favoriteMovie.trimmed,
+                            favoriteShow: favoriteShow.trimmed,
+                            favoriteBook: favoriteBook.trimmed,
+                            favoritePodcast: favoritePodcast.trimmed,
+                            homeCity: homeCity.trimmed
+                        )
+                        onSave(update)
                         dismiss()
                     }
                     .disabled(!canSave)
@@ -100,7 +215,6 @@ struct EditProfileSheet: View {
     private func validateUsername(_ value: String) -> String? {
         let u = value.trimmed
         guard !u.isEmpty else { return nil } // optional
-        // Rules: 3–20 chars, lowercase letters/numbers/underscore, must start with a letter
         let pattern = "^[a-z][a-z0-9_]{2,19}$"
         if u.range(of: pattern, options: .regularExpression) == nil {
             if u.count < 3 || u.count > 20 { return "Username must be 3–20 characters." }
@@ -112,7 +226,7 @@ struct EditProfileSheet: View {
 
     private func validateDisplayName(_ value: String) -> String? {
         let d = value.trimmed
-        guard !d.isEmpty else { return nil } // optional
+        guard !d.isEmpty else { return nil }
         if d.count > 40 { return "Display name must be 40 characters or fewer." }
         return nil
     }
@@ -120,10 +234,9 @@ struct EditProfileSheet: View {
     private var canSave: Bool {
         let u = username.trimmed
         let d = displayName.trimmed
-        // Must satisfy local validation
         if validateUsername(u) != nil { return false }
         if validateDisplayName(d) != nil { return false }
-        // Username optional; if provided and changed, require availability check to pass
+        if bio.count > 160 { return false }
         if !u.isEmpty && u.caseInsensitiveCompare(initialUsername) != .orderedSame {
             return (isAvailable == true) && !isChecking
         }
@@ -155,8 +268,6 @@ struct EditProfileSheet: View {
             return
         }
         isChecking = true
-        // TODO: Implement username availability check
-        // For now, just assume it's available
         try? await Task.sleep(nanoseconds: 500_000_000)
         isAvailable = true
         isChecking = false

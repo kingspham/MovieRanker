@@ -14,7 +14,15 @@ struct ProfileView: View {
     @State private var showEditProfile = false
     @State private var profile: SocialProfile?
     @StateObject private var badgeService = BadgeService.shared
-    
+
+    // Follower/Following counts
+    @State private var followerCount: Int = 0
+    @State private var followingCount: Int = 0
+
+    // Activity rank
+    @State private var activityPoints: Int = 0
+    @State private var activityRank: Int = 0
+
     // UI State
     @State private var tasteFilter: String = "movie"
     @State private var showAllTaste = false
@@ -42,11 +50,19 @@ struct ProfileView: View {
                     // 2. STATS
                     statsSection
 
-                    // 3. BADGES
+                    // 3. FAVORITES
+                    favoritesSection
+                    Divider().padding()
+
+                    // 4. BADGES
                     badgesSection
                     Divider().padding()
+
+                    // 5. TASTE PROFILE
                     tasteProfileSection
                     Divider().padding()
+
+                    // 6. SETTINGS
                     settingsSection
                     
                     Spacer(minLength: 50)
@@ -62,9 +78,36 @@ struct ProfileView: View {
             .task {
                 userId = AuthService.shared.currentUserId() ?? "guest"
                 await loadProfile()
+                await loadFollowCounts()
+                calculateActivityPoints()
                 recalculateBadgesIfNeeded()
             }
-            .sheet(isPresented: $showEditProfile) { EditProfileSheet(initialUsername: profile?.username ?? "", initialDisplayName: profile?.fullName ?? "") { newU, newN in Task { try? await SocialService.shared.updateProfile(username: newU, fullName: newN); await loadProfile() } } }
+            .sheet(isPresented: $showEditProfile) {
+                EditProfileSheet(
+                    initialUsername: profile?.username ?? "",
+                    initialDisplayName: profile?.fullName ?? "",
+                    initialBio: profile?.bio ?? "",
+                    initialFavoriteMovie: profile?.favoriteMovie ?? "",
+                    initialFavoriteShow: profile?.favoriteShow ?? "",
+                    initialFavoriteBook: profile?.favoriteBook ?? "",
+                    initialFavoritePodcast: profile?.favoritePodcast ?? "",
+                    initialHomeCity: profile?.homeCity ?? ""
+                ) { update in
+                    Task {
+                        try? await SocialService.shared.updateFullProfile(
+                            username: update.username,
+                            fullName: update.displayName,
+                            bio: update.bio,
+                            favoriteMovie: update.favoriteMovie,
+                            favoriteShow: update.favoriteShow,
+                            favoriteBook: update.favoriteBook,
+                            favoritePodcast: update.favoritePodcast,
+                            homeCity: update.homeCity
+                        )
+                        await loadProfile()
+                    }
+                }
+            }
             .onChange(of: badgeService.latestUnlock) { _, newBadge in
                 if newBadge != nil {
                     showBadgeUnlock = true
@@ -92,6 +135,26 @@ struct ProfileView: View {
         } catch {
             print("Profile load error: \(error)")
         }
+    }
+
+    private func loadFollowCounts() async {
+        let counts = await SocialService.shared.getFollowCounts(userId: userId)
+        await MainActor.run {
+            self.followerCount = counts.followers
+            self.followingCount = counts.following
+        }
+    }
+
+    private func calculateActivityPoints() {
+        // Points system:
+        // - Ranking a movie/show/podcast/book: 100 points
+        // - Adding to watchlist: 20 points
+        // - Logging (without ranking): 50 points
+        let rankedCount = allUserItems.filter { $0.ownerId == userId && $0.state == .seen }.count
+        let watchlistCount = allUserItems.filter { $0.ownerId == userId && $0.state == .watchlist }.count
+        let logCount = allLogs.filter { $0.ownerId == userId }.count
+
+        activityPoints = (rankedCount * 100) + (watchlistCount * 20) + (logCount * 50)
     }
     
     // Components
@@ -124,17 +187,97 @@ struct ProfileView: View {
         }.padding(.top)
     }
     var statsSection: some View {
-        HStack(spacing: 12) {
-            StatCard(value: "\(statTotalSeen)", label: "Seen", icon: "checkmark.circle.fill", color: .green)
-            StatCard(value: "\(statWatchlist)", label: "Watchlist", icon: "bookmark.fill", color: .blue)
-            StatCard(value: "\(myLogs.count)", label: "Logs", icon: "pencil.circle.fill", color: .orange)
+        VStack(spacing: 12) {
+            // Main stats row
+            HStack(spacing: 12) {
+                StatCard(value: "\(statTotalSeen)", label: "Ranked", icon: "star.fill", color: .yellow)
+                StatCard(value: "\(statWatchlist)", label: "Watchlist", icon: "bookmark.fill", color: .blue)
+                StatCard(value: "\(myLogs.count)", label: "Logs", icon: "pencil.circle.fill", color: .orange)
+            }
+
+            // Social stats row
+            HStack(spacing: 12) {
+                StatCard(value: "\(followerCount)", label: "Followers", icon: "person.2.fill", color: .purple)
+                StatCard(value: "\(followingCount)", label: "Following", icon: "heart.fill", color: .pink)
+                StatCard(value: formatPoints(activityPoints), label: "Points", icon: "flame.fill", color: .red)
+            }
         }.padding(.horizontal)
+    }
+
+    private func formatPoints(_ points: Int) -> String {
+        if points >= 1000 {
+            return String(format: "%.1fK", Double(points) / 1000.0)
+        }
+        return "\(points)"
     }
     var badgesSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             NavigationLink(destination: BadgeGalleryView()) { HStack { Text("Badges").font(.title3).bold().foregroundStyle(.primary); Spacer(); Image(systemName: "chevron.right").font(.caption2).bold().foregroundStyle(.secondary) } }.padding(.horizontal)
             Text("Complete logs to earn badges!").font(.caption).foregroundStyle(.secondary).padding(.horizontal)
         }
+    }
+
+    var favoritesSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Favorites").font(.title3).bold().padding(.horizontal)
+
+            let hasFavorites = profile?.favoriteMovie != nil || profile?.favoriteShow != nil ||
+                               profile?.favoriteBook != nil || profile?.favoritePodcast != nil ||
+                               profile?.homeCity != nil || profile?.bio != nil
+
+            if hasFavorites {
+                VStack(spacing: 8) {
+                    if let bio = profile?.bio, !bio.isEmpty {
+                        HStack(alignment: .top) {
+                            Image(systemName: "quote.opening")
+                                .foregroundStyle(.secondary)
+                                .frame(width: 24)
+                            Text(bio)
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                                .italic()
+                            Spacer()
+                        }.padding(.horizontal)
+                    }
+                    if let movie = profile?.favoriteMovie, !movie.isEmpty {
+                        favoriteRow(icon: "film.fill", color: .blue, label: "Movie", value: movie)
+                    }
+                    if let show = profile?.favoriteShow, !show.isEmpty {
+                        favoriteRow(icon: "tv.fill", color: .purple, label: "TV Show", value: show)
+                    }
+                    if let book = profile?.favoriteBook, !book.isEmpty {
+                        favoriteRow(icon: "book.fill", color: .orange, label: "Book", value: book)
+                    }
+                    if let podcast = profile?.favoritePodcast, !podcast.isEmpty {
+                        favoriteRow(icon: "mic.fill", color: .green, label: "Podcast", value: podcast)
+                    }
+                    if let city = profile?.homeCity, !city.isEmpty {
+                        favoriteRow(icon: "mappin.circle.fill", color: .red, label: "From", value: city)
+                    }
+                }
+            } else {
+                Text("Tap 'Edit Profile' to add your favorites!")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal)
+            }
+        }
+    }
+
+    private func favoriteRow(icon: String, color: Color, label: String, value: String) -> some View {
+        HStack {
+            Image(systemName: icon)
+                .foregroundStyle(color)
+                .frame(width: 24)
+            Text(label)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+            Spacer()
+            Text(value)
+                .font(.subheadline)
+                .fontWeight(.medium)
+        }
+        .padding(.horizontal)
     }
     var tasteProfileSection: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -167,13 +310,11 @@ struct ProfileView: View {
     }
     var settingsSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Settings").font(.headline).padding(.horizontal).padding(.top, 8)
-
-            // Tools & Settings Link (Theme, Import, etc.)
+            // Tools & Settings Link
             NavigationLink(destination: SettingsToolsView()) {
                 HStack {
                     Image(systemName: "gearshape.fill")
-                    Text("Tools & Settings")
+                    Text("Settings")
                     Spacer()
                     Image(systemName: "chevron.right")
                         .font(.caption2)
@@ -186,24 +327,18 @@ struct ProfileView: View {
             }
             .padding(.horizontal)
 
-            // Sync Tools Link
-            NavigationLink(destination: DataRepairView()) {
+            Button(action: { Task { try? await AuthService.shared.signOut() } }) {
                 HStack {
-                    Image(systemName: "arrow.triangle.2.circlepath")
-                    Text("Cloud Sync & Recovery")
+                    Image(systemName: "rectangle.portrait.and.arrow.right")
+                    Text("Sign Out")
                     Spacer()
-                    Image(systemName: "chevron.right")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
                 }
                 .padding()
-                .background(Color.orange.opacity(0.1))
-                .foregroundStyle(.orange)
+                .background(Color.red.opacity(0.1))
+                .foregroundStyle(.red)
                 .cornerRadius(12)
             }
             .padding(.horizontal)
-
-            Button(action: { Task { try? await AuthService.shared.signOut() } }) { HStack { Image(systemName: "rectangle.portrait.and.arrow.right"); Text("Sign Out"); Spacer() }.padding().background(Color.red.opacity(0.1)).foregroundStyle(.red).cornerRadius(12) }.padding(.horizontal)
         }
     }
     struct StatItem: Identifiable { let id = UUID(); let name: String; let count: Int }

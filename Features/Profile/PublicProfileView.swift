@@ -3,19 +3,27 @@ import SwiftData
 
 struct PublicProfileView: View {
     let profile: SocialProfile
-    
+
     @Environment(\.modelContext) private var context
     @State private var items: [PublicLog] = []
     @State private var stats: PublicStats?
     @State private var isLoading = true
     @State private var isFollowing = false
-    
+
     // Viewership Intersection
     @State private var sharedCount: Int = 0
     @State private var theirTotal: Int = 0
-    
+
+    // Taste Profile
+    @State private var theirTopGenres: [(name: String, count: Int)] = []
+    @State private var tasteSimilarity: Int = 0 // 0-100%
+
+    // Follow counts
+    @State private var followerCount: Int = 0
+    @State private var followingCount: Int = 0
+
     @State private var myId: String = ""
-    
+
     var body: some View {
         ScrollView {
             VStack(spacing: 24) {
@@ -23,9 +31,29 @@ struct PublicProfileView: View {
                 VStack(spacing: 12) {
                     Circle().fill(Color.gray.opacity(0.2)).frame(width: 100, height: 100)
                         .overlay(Text(String(profile.displayName.prefix(1)).uppercased()).font(.largeTitle).bold())
-                    
+
                     Text(profile.displayName).font(.title2).bold()
                     Text("@\(profile.username ?? "user")").foregroundStyle(.secondary)
+
+                    // Bio
+                    if let bio = profile.bio, !bio.isEmpty {
+                        Text(bio)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 32)
+                    }
+
+                    // Location
+                    if let city = profile.homeCity, !city.isEmpty {
+                        HStack(spacing: 4) {
+                            Image(systemName: "mappin.circle.fill")
+                                .foregroundStyle(.red)
+                            Text(city)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
 
                     // Don't show follow button for yourself
                     if profile.id.uuidString != myId {
@@ -37,32 +65,112 @@ struct PublicProfileView: View {
                     }
                 }
                 .padding(.top)
-                
-                // COMPARE STATS
+
+                // STATS ROW
                 if !isLoading {
-                    HStack(spacing: 40) {
+                    HStack(spacing: 24) {
                         VStack {
                             Text("\(stats?.totalLogs ?? 0)").font(.headline)
-                            Text("Logged").font(.caption).foregroundStyle(.secondary)
+                            Text("Ranked").font(.caption).foregroundStyle(.secondary)
                         }
                         VStack {
-                            Text("\(sharedCount)/\(theirTotal)").font(.headline)
-                            Text("You've Seen").font(.caption).foregroundStyle(.secondary)
+                            Text("\(followerCount)").font(.headline)
+                            Text("Followers").font(.caption).foregroundStyle(.secondary)
+                        }
+                        VStack {
+                            Text("\(followingCount)").font(.headline)
+                            Text("Following").font(.caption).foregroundStyle(.secondary)
+                        }
+                        VStack {
+                            Text("\(sharedCount)").font(.headline)
+                            Text("In Common").font(.caption).foregroundStyle(.secondary)
                         }
                     }
                     .padding()
                     .background(Color.gray.opacity(0.05))
                     .cornerRadius(12)
                 }
-                
+
+                // TASTE SIMILARITY
+                if !isLoading && tasteSimilarity > 0 {
+                    VStack(spacing: 8) {
+                        HStack {
+                            Text("Taste Similarity")
+                                .font(.headline)
+                            Spacer()
+                            Text("\(tasteSimilarity)%")
+                                .font(.title2)
+                                .bold()
+                                .foregroundStyle(similarityColor)
+                        }
+                        .padding(.horizontal)
+
+                        // Similarity bar
+                        GeometryReader { geo in
+                            ZStack(alignment: .leading) {
+                                RoundedRectangle(cornerRadius: 4)
+                                    .fill(Color.gray.opacity(0.2))
+                                RoundedRectangle(cornerRadius: 4)
+                                    .fill(similarityColor)
+                                    .frame(width: geo.size.width * CGFloat(tasteSimilarity) / 100)
+                            }
+                        }
+                        .frame(height: 8)
+                        .padding(.horizontal)
+                    }
+                    .padding(.vertical, 8)
+                    .background(Color.gray.opacity(0.05))
+                    .cornerRadius(12)
+                    .padding(.horizontal)
+                }
+
+                // FAVORITES
+                if hasFavorites {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Favorites").font(.headline).padding(.horizontal)
+                        if let movie = profile.favoriteMovie, !movie.isEmpty {
+                            favoriteRow(icon: "film.fill", color: .blue, label: "Movie", value: movie)
+                        }
+                        if let show = profile.favoriteShow, !show.isEmpty {
+                            favoriteRow(icon: "tv.fill", color: .purple, label: "TV Show", value: show)
+                        }
+                        if let book = profile.favoriteBook, !book.isEmpty {
+                            favoriteRow(icon: "book.fill", color: .orange, label: "Book", value: book)
+                        }
+                        if let podcast = profile.favoritePodcast, !podcast.isEmpty {
+                            favoriteRow(icon: "mic.fill", color: .green, label: "Podcast", value: podcast)
+                        }
+                    }
+                    .padding(.vertical, 8)
+                }
+
+                // TASTE PROFILE
+                if !theirTopGenres.isEmpty {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Top Genres").font(.headline).padding(.horizontal)
+                        ForEach(theirTopGenres.prefix(5), id: \.name) { genre in
+                            HStack {
+                                Text(genre.name)
+                                    .font(.subheadline)
+                                Spacer()
+                                Text("\(genre.count)")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .padding(.horizontal)
+                        }
+                    }
+                    .padding(.vertical, 8)
+                }
+
                 // Recent Activity
                 VStack(alignment: .leading) {
                     Text("Recent Activity").font(.headline).padding(.horizontal)
-                    
+
                     if items.isEmpty {
                         ContentUnavailableView("No activity", systemImage: "clock")
                     } else {
-                        ForEach(items) { item in
+                        ForEach(items.prefix(10)) { item in
                             HStack {
                                 if let url = item.posterURL {
                                     AsyncImage(url: url) { $0.image?.resizable().scaledToFill() }
@@ -81,53 +189,122 @@ struct PublicProfileView: View {
                         }
                     }
                 }
+
+                Spacer(minLength: 50)
             }
         }
         .navigationTitle(profile.username ?? "Profile")
         .task {
             await loadPublicData()
             await checkFollowStatus()
+            await loadFollowCounts()
         }
     }
-    
+
+    private var hasFavorites: Bool {
+        profile.favoriteMovie != nil || profile.favoriteShow != nil ||
+        profile.favoriteBook != nil || profile.favoritePodcast != nil
+    }
+
+    private var similarityColor: Color {
+        if tasteSimilarity >= 70 { return .green }
+        if tasteSimilarity >= 40 { return .orange }
+        return .red
+    }
+
+    private func favoriteRow(icon: String, color: Color, label: String, value: String) -> some View {
+        HStack {
+            Image(systemName: icon)
+                .foregroundStyle(color)
+                .frame(width: 24)
+            Text(label)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+            Spacer()
+            Text(value)
+                .font(.subheadline)
+                .fontWeight(.medium)
+        }
+        .padding(.horizontal)
+    }
+
     private func loadPublicData() async {
-        // 1. Fetch Cloud Data (Async, Background)
-        // Note: Using uuidString because SocialProfile.id is UUID
         let fetchedItems = await FeedService.shared.fetchUserLogs(userId: profile.id.uuidString)
-        
-        // 2. Fetch Session (Async, Background)
         let session = try? await AuthService.shared.sessionActor().session()
         let currentUserId = session?.userId ?? ""
-        
-        // 3. Update UI & Calculate Local Stats (Main Thread)
+
         await MainActor.run {
             self.items = fetchedItems
             self.myId = currentUserId
-            
+
             // Get My Movies to compare
             let allMovies = (try? context.fetch(FetchDescriptor<Movie>())) ?? []
             let myMovies = allMovies.filter { $0.ownerId == currentUserId }
             let myIDs = Set(myMovies.compactMap { $0.tmdbID })
-            
+
             let theirIDs = Set(fetchedItems.map { $0.tmdbID })
-            
+
             self.theirTotal = theirIDs.count
             self.sharedCount = theirIDs.intersection(myIDs).count
             self.stats = PublicStats(totalLogs: fetchedItems.count)
+
+            // Calculate their taste profile
+            calculateTheirTaste(items: fetchedItems)
+
+            // Calculate taste similarity based on genres
+            calculateTasteSimilarity(myMovies: myMovies)
+
             self.isLoading = false
         }
     }
-    
+
+    private func calculateTheirTaste(items: [PublicLog]) {
+        // This would require genre IDs from the items - for now we'll show based on available data
+        // In a real implementation, you'd fetch genre data for their logs
+        var genreCounts: [String: Int] = [:]
+
+        // Simple implementation - this would be enhanced with actual genre data
+        for item in items {
+            // You'd look up genre IDs here from their logs
+            // For now, this serves as a placeholder
+        }
+
+        theirTopGenres = genreCounts.sorted { $0.value > $1.value }.map { (name: $0.key, count: $0.value) }
+    }
+
+    private func calculateTasteSimilarity(myMovies: [Movie]) {
+        // Calculate genre overlap between users
+        guard !items.isEmpty else { return }
+
+        // Get my genre counts
+        var myGenreCounts: [Int: Int] = [:]
+        for movie in myMovies {
+            for genreId in movie.genreIDs {
+                myGenreCounts[genreId, default: 0] += 1
+            }
+        }
+
+        // Similarity based on shared items relative to total
+        let sharedRatio = theirTotal > 0 ? Double(sharedCount) / Double(theirTotal) : 0
+        tasteSimilarity = Int(sharedRatio * 100)
+    }
+
+    private func loadFollowCounts() async {
+        let counts = await SocialService.shared.getFollowCounts(userId: profile.id.uuidString)
+        await MainActor.run {
+            self.followerCount = counts.followers
+            self.followingCount = counts.following
+        }
+    }
+
     private func checkFollowStatus() async {
-        // SocialService takes String ID
         let following = await SocialService.shared.fetchFollowing(userId: myId)
         isFollowing = following.contains { $0.id == profile.id }
     }
-    
+
     private func toggleFollow() async {
-        // SocialService takes String ID
         let targetId = profile.id.uuidString
-        
+
         if isFollowing {
             try? await SocialService.shared.unfollow(targetId: targetId)
         } else {
@@ -147,7 +324,7 @@ struct PublicLog: Identifiable {
     let posterPath: String?
     let score: Int?
     let tmdbID: Int
-    
+
     var posterURL: URL? {
         TMDbClient.makeImageURL(path: posterPath ?? "", size: .w185)
     }

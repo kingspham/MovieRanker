@@ -41,18 +41,32 @@ struct AppBadge: Identifiable, Hashable, Sendable {
 class BadgeService: ObservableObject {
     static let shared = BadgeService()
     private init() {}
-    
+
     @Published var badges: [AppBadge] = []
     @Published var recentBadges: [AppBadge] = []
     @Published var latestUnlock: AppBadge? = nil
-    
+
     // Track previously unlocked badge IDs to detect new unlocks
     private var previouslyUnlockedIDs: Set<String> = []
 
+    // Flag to track if this is the initial load (should NOT show popups)
+    private var hasCompletedInitialLoad = false
+
+    // Call this on app start / profile load - will NOT show popups
     func calculateBadges(inputs: [BadgeInput]) {
+        calculateBadgesInternal(inputs: inputs, showPopup: hasCompletedInitialLoad)
+        hasCompletedInitialLoad = true
+    }
+
+    // Call this after ranking - WILL show popup if new badge unlocked
+    func recalculateAfterRanking(inputs: [BadgeInput]) {
+        hasCompletedInitialLoad = true // Ensure flag is set
+        calculateBadgesInternal(inputs: inputs, showPopup: true)
+    }
+
+    private func calculateBadgesInternal(inputs: [BadgeInput], showPopup: Bool) {
         // Run on background priority
         Task.detached(priority: .background) {
-            // FIX: We call a nonisolated function here
             let newBadges = self.performCalculation(inputs: inputs)
 
             await MainActor.run {
@@ -62,12 +76,10 @@ class BadgeService: ObservableObject {
                 self.badges = newBadges
                 self.recentBadges = Array(newBadges.sorted { $0.isUnlocked && !$1.isUnlocked }.prefix(8))
 
-                // Find newly unlocked badges (ones that weren't unlocked before)
-                let newlyUnlocked = newBadges.filter { $0.isUnlocked && !oldIDs.contains($0.id) }
-                if let firstNew = newlyUnlocked.first {
-                    // Only show popup if this isn't the initial load (when previouslyUnlockedIDs was empty)
-                    // OR if user just earned their first badge
-                    if !oldIDs.isEmpty || (oldIDs.isEmpty && self.previouslyUnlockedIDs.isEmpty && newUnlockedIDs.count > 0) {
+                // Only show popup if explicitly requested AND there's a newly unlocked badge
+                if showPopup {
+                    let newlyUnlocked = newBadges.filter { $0.isUnlocked && !oldIDs.contains($0.id) }
+                    if let firstNew = newlyUnlocked.first {
                         self.latestUnlock = firstNew
                     }
                 }
