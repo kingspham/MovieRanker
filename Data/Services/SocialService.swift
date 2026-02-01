@@ -68,6 +68,40 @@ final class SocialService: ObservableObject {
         struct UpdatePayload: Encodable { let username: String; let full_name: String }
         try await client.from("profiles").update(UpdatePayload(username: username, full_name: fullName)).eq("id", value: currentId).execute()
     }
+
+    func updateFullProfile(
+        username: String,
+        fullName: String,
+        bio: String?,
+        favoriteMovie: String?,
+        favoriteShow: String?,
+        favoriteBook: String?,
+        favoritePodcast: String?,
+        homeCity: String?
+    ) async throws {
+        guard let currentId = client.auth.currentUser?.id else { return }
+        struct UpdatePayload: Encodable {
+            let username: String
+            let full_name: String
+            let bio: String?
+            let favorite_movie: String?
+            let favorite_show: String?
+            let favorite_book: String?
+            let favorite_podcast: String?
+            let home_city: String?
+        }
+        let payload = UpdatePayload(
+            username: username,
+            full_name: fullName,
+            bio: bio?.isEmpty == true ? nil : bio,
+            favorite_movie: favoriteMovie?.isEmpty == true ? nil : favoriteMovie,
+            favorite_show: favoriteShow?.isEmpty == true ? nil : favoriteShow,
+            favorite_book: favoriteBook?.isEmpty == true ? nil : favoriteBook,
+            favorite_podcast: favoritePodcast?.isEmpty == true ? nil : favoritePodcast,
+            home_city: homeCity?.isEmpty == true ? nil : homeCity
+        )
+        try await client.from("profiles").update(payload).eq("id", value: currentId).execute()
+    }
     
     func getMyProfile() async throws -> SocialProfile? {
         guard let currentId = client.auth.currentUser?.id else { return nil }

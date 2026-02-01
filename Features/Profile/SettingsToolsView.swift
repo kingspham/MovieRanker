@@ -1,5 +1,5 @@
 // SettingsToolsView.swift
-// COMPLETE VERSION with ALL fix buttons
+// Simplified version for regular users
 
 import SwiftUI
 import SwiftData
@@ -9,10 +9,8 @@ struct SettingsToolsView: View {
     @Environment(\.modelContext) private var context
     @StateObject private var themeManager = ThemeManager.shared
     @StateObject private var importService = ImportService.shared
-    @StateObject private var badgeService = BadgeService.shared
 
     @State private var showingFilePicker = false
-    @State private var showingCSVPicker = false
     @State private var showAlert = false
     @State private var alertMessage = ""
     @State private var userId = "guest"
@@ -41,88 +39,49 @@ struct SettingsToolsView: View {
                     Text("System follows your device's dark mode setting")
                 }
 
-                // QUICK FIXES SECTION
-                Section {
-                    // Recalculate scores with new algorithm
-                    Button {
-                        Task {
-                            await RecalculateAllScores.recalculateAllUserScores(context: context)
-                            alertMessage = "All scores recalculated! Check console for details."
-                            showAlert = true
-                        }
-                    } label: {
-                        Label("Recalculate All Scores", systemImage: "arrow.triangle.2.circlepath")
-                            .foregroundStyle(.blue)
-                    }
-                    
-                    // Fix watch dates from CSV
-                    Button {
-                        showingCSVPicker = true
-                    } label: {
-                        Label("Fix Watch Dates from CSV", systemImage: "calendar")
-                            .foregroundStyle(.orange)
-                    }
-                    
-                    // Complete fix
-                    Button {
-                        Task {
-                            await CompleteFix.fixEverything(context: context)
-                            alertMessage = "Complete fix done! Check console."
-                            showAlert = true
-                        }
-                    } label: {
-                        Label("Run Complete Fix", systemImage: "hammer.fill")
-                            .foregroundStyle(.green)
-                    }
-                } header: {
-                    Text("Quick Fixes")
-                } footer: {
-                    Text("Recalculate Scores: Applies new algorithm to all existing rankings\nFix Dates: Updates LogEntries with dates from Netflix CSV\nComplete Fix: Runs all migrations")
-                }
-                
                 // CURRENT STATUS
                 Section {
                     HStack {
-                        Text("User ID:")
-                        Spacer()
-                        Text(userId.prefix(8) + "...")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    
-                    HStack {
-                        Text("Seen Items:")
+                        Text("Ranked Items:")
                         Spacer()
                         Text("\(allUserItems.filter { $0.state == .seen }.count)")
                             .foregroundStyle(.blue)
                     }
-                    
+
+                    HStack {
+                        Text("Watchlist:")
+                        Spacer()
+                        Text("\(allUserItems.filter { $0.state == .watchlist }.count)")
+                            .foregroundStyle(.green)
+                    }
+
                     HStack {
                         Text("Log Entries:")
                         Spacer()
                         Text("\(allLogs.count)")
-                            .foregroundStyle(.green)
-                    }
-                    
-                    HStack {
-                        Text("Scores:")
-                        Spacer()
-                        Text("\(allScores.count)")
                             .foregroundStyle(.orange)
                     }
                 } header: {
-                    Text("Current Status")
+                    Text("Your Stats")
                 }
-                
+
                 // IMPORT
                 Section {
                     Button {
                         showingFilePicker = true
                     } label: {
-                        Label("Import from Netflix/Letterboxd", systemImage: "square.and.arrow.down")
+                        HStack {
+                            Image(systemName: "square.and.arrow.down")
+                            VStack(alignment: .leading) {
+                                Text("Import Watch History")
+                                Text("Netflix or Letterboxd CSV")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
                     }
                     .disabled(importService.isRunning)
-                    
+
                     if importService.isRunning {
                         VStack(alignment: .leading, spacing: 8) {
                             ProgressView(value: importService.progress)
@@ -132,44 +91,60 @@ struct SettingsToolsView: View {
                         }
                     }
                 } header: {
-                    Text("Import")
+                    Text("Import Data")
+                } footer: {
+                    Text("Import your viewing history from Netflix (ViewingActivity.csv) or Letterboxd (diary.csv)")
                 }
-                
-                // BULK RANKING
+
+                // QUICK ACTIONS
                 Section {
                     NavigationLink {
                         BulkRankingView()
                     } label: {
-                        Label("Rank Unranked Items", systemImage: "chart.bar.fill")
+                        HStack {
+                            Image(systemName: "chart.bar.fill")
+                            VStack(alignment: .leading) {
+                                Text("Rank Unranked Items")
+                                Text("Quick-rank items in your history")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+
+                    Button {
+                        Task { await fixDocumentaryClassification() }
+                    } label: {
+                        HStack {
+                            Image(systemName: "doc.text.magnifyingglass")
+                            VStack(alignment: .leading) {
+                                Text("Fix Documentary Classification")
+                                Text("Re-fetch genres for movies with missing data")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
                     }
                 } header: {
-                    Text("Ranking")
+                    Text("Quick Actions")
                 }
-                
-                // OTHER TOOLS
+
+                // ABOUT
                 Section {
-                    NavigationLink {
-                        DataRepairView()
-                    } label: {
-                        Label("Cloud Recovery", systemImage: "arrow.triangle.2.circlepath")
-                    }
-                    
-                    Button {
-                        recalculateBadges()
-                    } label: {
-                        Label("Recalculate Badges", systemImage: "medal.fill")
-                    }
-                    
-                    Button {
-                        Task { await syncScores() }
-                    } label: {
-                        Label("Sync Scores", systemImage: "arrow.down.circle")
+                    if let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String,
+                       let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String {
+                        HStack {
+                            Text("Version")
+                            Spacer()
+                            Text("\(version) (\(build))")
+                                .foregroundStyle(.secondary)
+                        }
                     }
                 } header: {
-                    Text("Other Tools")
+                    Text("About")
                 }
             }
-            .navigationTitle("Tools & Settings")
+            .navigationTitle("Settings")
             .fileImporter(
                 isPresented: $showingFilePicker,
                 allowedContentTypes: [.commaSeparatedText],
@@ -177,14 +152,7 @@ struct SettingsToolsView: View {
             ) { result in
                 handleFileImport(result: result)
             }
-            .fileImporter(
-                isPresented: $showingCSVPicker,
-                allowedContentTypes: [.commaSeparatedText],
-                allowsMultipleSelection: false
-            ) { result in
-                handleCSVForDateFix(result: result)
-            }
-            .alert("Complete", isPresented: $showAlert) {
+            .alert("Import Complete", isPresented: $showAlert) {
                 Button("OK") { }
             } message: {
                 Text(alertMessage)
@@ -194,7 +162,7 @@ struct SettingsToolsView: View {
             }
         }
     }
-    
+
     private func handleFileImport(result: Result<[URL], Error>) {
         switch result {
         case .success(let urls):
@@ -204,71 +172,68 @@ struct SettingsToolsView: View {
                 showAlert = true
                 return
             }
-            
+
             defer { url.stopAccessingSecurityScopedResource() }
-            
+
             guard let data = try? Data(contentsOf: url) else {
                 alertMessage = "Failed to read file"
                 showAlert = true
                 return
             }
-            
+
             Task {
                 await importService.runImport(data: data, context: context)
-                alertMessage = importService.message + "\n\nRun 'Complete Fix' after import!"
+                alertMessage = importService.message
                 showAlert = true
             }
-            
+
         case .failure(let error):
             alertMessage = "Import failed: \(error.localizedDescription)"
             showAlert = true
         }
     }
-    
-    private func handleCSVForDateFix(result: Result<[URL], Error>) {
-        switch result {
-        case .success(let urls):
-            guard let url = urls.first else { return }
-            guard url.startAccessingSecurityScopedResource() else {
-                alertMessage = "Failed to access file"
-                showAlert = true
-                return
-            }
-            
-            defer { url.stopAccessingSecurityScopedResource() }
-            
-            guard let data = try? Data(contentsOf: url) else {
-                alertMessage = "Failed to read file"
-                showAlert = true
-                return
-            }
-            
-            Task {
-                await FixWatchDatesFromCSV.fixDatesFromNetflixCSV(csvData: data, context: context)
-                alertMessage = "Watch dates fixed! Check console for details."
+
+    private func fixDocumentaryClassification() async {
+        let allMovies = (try? context.fetch(FetchDescriptor<Movie>())) ?? []
+        let moviesNeedingGenres = allMovies.filter { $0.genreIDs.isEmpty && $0.tmdbID != nil && $0.mediaType == "movie" }
+
+        guard !moviesNeedingGenres.isEmpty else {
+            await MainActor.run {
+                alertMessage = "All movies already have genre data!"
                 showAlert = true
             }
-            
-        case .failure(let error):
-            alertMessage = "CSV read failed: \(error.localizedDescription)"
+            return
+        }
+
+        var fixedCount = 0
+        let client = try? TMDbClient()
+
+        for movie in moviesNeedingGenres.prefix(50) { // Limit to 50 to avoid rate limits
+            guard let tmdbID = movie.tmdbID, let client = client else { continue }
+
+            do {
+                let details = try await client.getDetails(id: tmdbID, type: "movie")
+                if let genres = details.genres {
+                    let genreIds = genres.map { $0.id }
+                    await MainActor.run {
+                        movie.genreIDs = genreIds
+                    }
+                    fixedCount += 1
+                }
+            } catch {
+                print("Failed to fetch genres for \(movie.title): \(error)")
+            }
+
+            // Small delay to avoid rate limiting
+            try? await Task.sleep(nanoseconds: 100_000_000)
+        }
+
+        try? context.save()
+
+        await MainActor.run {
+            alertMessage = "Fixed \(fixedCount) movies! Documentaries (genre 99) will now be properly classified."
             showAlert = true
         }
-    }
-    
-    private func recalculateBadges() {
-        let inputs = allLogs.compactMap { log -> BadgeInput? in
-            guard let movie = log.movie else { return nil }
-            return BadgeInput(watchedOn: log.watchedOn, genreIDs: movie.genreIDs)
-        }
-        badgeService.calculateBadges(inputs: inputs)
-        alertMessage = "Badges recalculated from \(inputs.count) logs!"
-        showAlert = true
-    }
-    
-    private func syncScores() async {
-        await ScoreService.shared.syncScores(context: context)
-        alertMessage = "Scores synced!"
-        showAlert = true
     }
 }
 

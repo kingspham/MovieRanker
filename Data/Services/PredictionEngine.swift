@@ -1,5 +1,6 @@
 // PredictionEngine.swift
 // IMPROVED VERSION - Better predictions with more variation and accuracy
+// v2.0 - Added recency weighting, budget preference, multi-watch signals, and stronger negative signals
 
 import Foundation
 import SwiftData
@@ -199,6 +200,21 @@ final class LinearPredictionEngine: PredictionEngine {
             predictions.append((criticScore, 0.8, "Critic consensus"))
         }
 
+        // METHOD 11: Budget preference (big budget vs indie)
+        let budgetPrediction = predictByBudget(movie: movie, attributeScores: attributeScores)
+        if let bp = budgetPrediction {
+            predictions.append((bp.score, bp.confidence * 1.5, bp.reason))
+        }
+
+        // METHOD 12: Multi-watch signal (movies logged multiple times = strong positive)
+        let multiWatchBonus = getMultiWatchBonus(for: movie, userLogs: userLogs, movieLookup: movieLookup)
+        if let mwb = multiWatchBonus {
+            predictions.append((mwb.score, mwb.weight, mwb.reason))
+        }
+
+        // METHOD 13: Strong negative signal check (override if user consistently dislikes similar content)
+        let negativeSignal = checkNegativeSignals(for: movie, attributeScores: attributeScores)
+
         // Combine predictions with emphasis on STRONGEST signals
         var finalScore: Double
         var topReasons: [String] = []
@@ -354,12 +370,21 @@ final class LinearPredictionEngine: PredictionEngine {
         if let ep = predictByEra(movie: movie, attributeScores: attributeScores) {
             predictions.append((ep.score, ep.confidence * 1.0, ep.reason))
         }
+        if let bp = predictByBudget(movie: movie, attributeScores: attributeScores) {
+            predictions.append((bp.score, bp.confidence * 1.5, bp.reason))
+        }
+        if let mwb = getMultiWatchBonus(for: movie, userLogs: userLogs, movieLookup: movieLookup) {
+            predictions.append((mwb.score, mwb.weight, mwb.reason))
+        }
 
         let criticScore = getCriticBasedPrediction(for: movie)
         let userAvgScore = sameTypeScores.map { Double($0.display100) / 10.0 }.reduce(0, +) / Double(sameTypeScores.count)
         let userBias = userAvgScore - 6.5
         let adjustedCriticScore = criticScore + (userBias * 0.5)
         predictions.append((adjustedCriticScore, 0.5, "Critic consensus"))
+
+        // Check for negative signals
+        let negativeSignal = checkNegativeSignals(for: movie, attributeScores: attributeScores)
 
         var finalScore: Double
         var topReasons: [String] = []
@@ -381,6 +406,15 @@ final class LinearPredictionEngine: PredictionEngine {
             }
 
             topReasons = sortedPredictions.prefix(3).map { $0.reason }
+        }
+
+        // Apply negative signal penalty
+        if let neg = negativeSignal {
+            let pullStrength = min(neg.confidence, 0.5)
+            finalScore = finalScore * (1 - pullStrength) + neg.score * pullStrength
+            if !topReasons.contains(neg.reason) {
+                topReasons.append(neg.reason)
+            }
         }
 
         let confidence = min(Double(sameTypeScores.count) / 10.0, 0.9)
@@ -697,6 +731,141 @@ final class LinearPredictionEngine: PredictionEngine {
         return nil
     }
 
+    /// Predict based on production budget (blockbuster vs indie preference)
+    private func predictByBudget(movie: Movie, attributeScores: [String: [Double]]) -> (score: Double, confidence: Double, reason: String)? {
+        guard let budget = movie.budget, budget > 0 else { return nil }
+
+        // Categorize by budget tier (in millions USD)
+        let budgetKey: String
+        let budgetLabel: String
+        let budgetM = budget / 1_000_000
+
+        if budgetM >= 150 {
+            budgetKey = "budget:mega"
+            budgetLabel = "Mega-budget"
+        } else if budgetM >= 50 {
+            budgetKey = "budget:big"
+            budgetLabel = "Big budget"
+        } else if budgetM >= 15 {
+            budgetKey = "budget:mid"
+            budgetLabel = "Mid-budget"
+        } else if budgetM >= 5 {
+            budgetKey = "budget:low"
+            budgetLabel = "Low budget"
+        } else {
+            budgetKey = "budget:micro"
+            budgetLabel = "Micro-budget"
+        }
+
+        guard let scores = attributeScores[budgetKey], !scores.isEmpty else { return nil }
+
+        let avgScore = scores.reduce(0, +) / Double(scores.count)
+        let confidence = min(Double(scores.count) / 5.0, 0.7)
+
+        return (avgScore, confidence, budgetLabel)
+    }
+
+    /// Check if movie has similar entries that user rewatched (strong positive signal)
+    private func getMultiWatchBonus(for movie: Movie, userLogs: [LogEntry], movieLookup: [UUID: Movie]) -> (score: Double, weight: Double, reason: String)? {
+        // Count how many times user logged movies with same genres
+        var genreMultiWatchCounts: [Int: Int] = [:]
+        var genreMultiWatchAvgRatings: [Int: [Double]] = [:]
+
+        // Group logs by movie
+        var logsByMovie: [UUID: [LogEntry]] = [:]
+        for log in userLogs {
+            guard let m = log.movie else { continue }
+            logsByMovie[m.id, default: []].append(log)
+        }
+
+        // Find movies logged multiple times (rewatches = strong signal)
+        for (movieId, logs) in logsByMovie where logs.count > 1 {
+            guard let m = movieLookup[movieId] else { continue }
+            for genreId in m.genreIDs {
+                genreMultiWatchCounts[genreId, default: 0] += logs.count
+                // If there's a rating, add it weighted by watch count
+                if let firstLogWithRating = logs.first(where: { $0.rating != nil }),
+                   let rating = firstLogWithRating.rating {
+                    for _ in 0..<logs.count {
+                        genreMultiWatchAvgRatings[genreId, default: []].append(rating)
+                    }
+                }
+            }
+        }
+
+        // Check if target movie's genres match heavily rewatched genres
+        var matchScore: Double = 0
+        var matchCount = 0
+
+        for genreId in movie.genreIDs {
+            if let count = genreMultiWatchCounts[genreId], count > 2 {
+                // Strong rewatch signal for this genre
+                if let ratings = genreMultiWatchAvgRatings[genreId], !ratings.isEmpty {
+                    matchScore += ratings.reduce(0, +) / Double(ratings.count)
+                } else {
+                    matchScore += 8.0 // Default high score for rewatched content
+                }
+                matchCount += 1
+            }
+        }
+
+        guard matchCount > 0 else { return nil }
+
+        let avgMatch = matchScore / Double(matchCount)
+        // Boost slightly because rewatches indicate strong affinity
+        let boostedScore = min(avgMatch + 0.5, 10.0)
+
+        return (boostedScore, 2.0, "Similar to your rewatches")
+    }
+
+    /// Check for strong negative signals - if user consistently dislikes similar content
+    private func checkNegativeSignals(for movie: Movie, attributeScores: [String: [Double]]) -> (score: Double, confidence: Double, reason: String)? {
+        var negativeSignals: [(avgScore: Double, count: Int, label: String)] = []
+
+        // Check for disliked genres
+        for genreId in movie.genreIDs {
+            let key = "dislike:genre:\(genreId)"
+            if let scores = attributeScores[key], scores.count >= 2 {
+                let avg = scores.reduce(0, +) / Double(scores.count)
+                let genreName = genreIDToString(genreId)
+                negativeSignals.append((avg, scores.count, "You dislike \(genreName)"))
+            }
+        }
+
+        // Check for disliked directors/actors
+        for tag in movie.tags {
+            if tag.starts(with: "dir:") || tag.starts(with: "actor:") {
+                let key = "dislike:\(tag)"
+                if let scores = attributeScores[key], scores.count >= 2 {
+                    let avg = scores.reduce(0, +) / Double(scores.count)
+                    let name = tag.contains("dir:")
+                        ? tag.replacingOccurrences(of: "dir:", with: "").replacingOccurrences(of: "_", with: " ").capitalized
+                        : tag.replacingOccurrences(of: "actor:", with: "").replacingOccurrences(of: "_", with: " ").capitalized
+                    let prefix = tag.starts(with: "dir:") ? "Director" : "Actor"
+                    negativeSignals.append((avg, scores.count, "\(prefix) \(name)"))
+                }
+            }
+        }
+
+        guard !negativeSignals.isEmpty else { return nil }
+
+        // Sort by strength (count of negative ratings)
+        let sorted = negativeSignals.sorted { $0.count > $1.count }
+
+        // Calculate weighted average of negative signals
+        let totalCount = sorted.reduce(0) { $0 + $1.count }
+        let weightedSum = sorted.reduce(0.0) { $0 + ($1.avgScore * Double($1.count)) }
+        let avgNegative = weightedSum / Double(totalCount)
+
+        // Confidence based on number of negative signals found
+        let confidence = min(Double(totalCount) / 6.0, 0.8)
+
+        // Use the strongest signal's reason
+        let reason = sorted.first?.label ?? "Similar to disliked content"
+
+        return (avgNegative, confidence, reason)
+    }
+
     /// Helper to convert language code to readable name
     private func languageCodeToName(_ code: String) -> String {
         switch code {
@@ -907,6 +1076,32 @@ final class LinearPredictionEngine: PredictionEngine {
             }
             // Also track bias for fallback calculations
             attributeScores["tmdb:bias", default: []].append(rating)
+        }
+
+        // Budget tier preference
+        if let budget = movie.budget, budget > 0 {
+            let budgetM = budget / 1_000_000
+            if budgetM >= 150 {
+                attributeScores["budget:mega", default: []].append(rating)
+            } else if budgetM >= 50 {
+                attributeScores["budget:big", default: []].append(rating)
+            } else if budgetM >= 15 {
+                attributeScores["budget:mid", default: []].append(rating)
+            } else if budgetM >= 5 {
+                attributeScores["budget:low", default: []].append(rating)
+            } else {
+                attributeScores["budget:micro", default: []].append(rating)
+            }
+        }
+
+        // Track strong negative signals separately for amplification
+        if rating < 4.0 {
+            for genreID in movie.genreIDs {
+                attributeScores["dislike:genre:\(genreID)", default: []].append(rating)
+            }
+            for tag in movie.tags where tag.starts(with: "dir:") || tag.starts(with: "actor:") {
+                attributeScores["dislike:\(tag)", default: []].append(rating)
+            }
         }
     }
 
