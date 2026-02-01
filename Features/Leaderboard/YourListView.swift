@@ -42,7 +42,6 @@ struct YourListView: View {
                     }
                 }
             }
-            .navigationTitle("Library")
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif
@@ -57,6 +56,7 @@ struct YourListView: View {
 struct SavedView: View {
     @Environment(\.modelContext) private var context
     @Query(sort: \UserItem.createdAt, order: .reverse) private var allUserItems: [UserItem]
+    @Query private var allScores: [Score]
 
     @State private var userId: String = "guest"
     @State private var searchText: String = ""
@@ -67,7 +67,7 @@ struct SavedView: View {
     // Cached predictions to avoid recomputing on every render
     @State private var predictionCache: [UUID: Double] = [:]
     @State private var isPredictionsLoaded = false
-    @State private var lastLoadedItemCount = 0  // Track if items changed
+    @State private var cachedUnrankedCount: Int = 0
 
     var sortOrder: WatchlistSortOption {
         get { WatchlistSortOption(rawValue: sortOrderRaw) ?? .dateAdded }
@@ -98,10 +98,11 @@ struct SavedView: View {
     }
 
     var sortedItems: [UserItem] {
+        let items = watchlistItems
         let sorted: [UserItem]
         switch sortOrder {
         case .dateAdded:
-            sorted = watchlistItems.sorted { $0.createdAt > $1.createdAt }
+            sorted = items.sorted { $0.createdAt > $1.createdAt }
         case .predicted:
             // Use cached predictions for sorting
             sorted = watchlistItems.sorted { (item1, item2) in
@@ -110,26 +111,23 @@ struct SavedView: View {
                 return pred1 > pred2
             }
         case .title:
-            sorted = watchlistItems.sorted { ($0.movie?.title ?? "") < ($1.movie?.title ?? "") }
+            sorted = items.sorted { ($0.movie?.title ?? "") < ($1.movie?.title ?? "") }
         case .year:
-            sorted = watchlistItems.sorted { ($0.movie?.year ?? 0) > ($1.movie?.year ?? 0) }
+            sorted = items.sorted { ($0.movie?.year ?? 0) > ($1.movie?.year ?? 0) }
         case .metacritic:
-            sorted = watchlistItems.sorted { metaScore(for: $0) > metaScore(for: $1) }
+            sorted = items.sorted { metaScore(for: $0) > metaScore(for: $1) }
         case .imdb:
-            sorted = watchlistItems.sorted { imdbScore(for: $0) > imdbScore(for: $1) }
+            sorted = items.sorted { imdbScore(for: $0) > imdbScore(for: $1) }
         case .rottenTomatoes:
-            sorted = watchlistItems.sorted { rottenTomatoesScore(for: $0) > rottenTomatoesScore(for: $1) }
+            sorted = items.sorted { rottenTomatoesScore(for: $0) > rottenTomatoesScore(for: $1) }
         }
         return sortAscending ? sorted.reversed() : sorted
     }
-    
-    // Get unranked items count for Rank All button
-    var unrankedCount: Int {
-        let scoreDesc = FetchDescriptor<Score>()
-        let allScores = (try? context.fetch(scoreDesc)) ?? []
+
+    // Compute unranked count from cached data (not a computed property to avoid repeated fetches)
+    private func updateUnrankedCount() {
         let rankedMovieIDs = Set(allScores.filter { $0.ownerId == userId }.map { $0.movieID })
-        
-        return watchlistItems.filter { item in
+        cachedUnrankedCount = watchlistItems.filter { item in
             guard let movieID = item.movie?.id else { return false }
             return !rankedMovieIDs.contains(movieID)
         }.count
@@ -180,13 +178,13 @@ struct SavedView: View {
                     }
 
                     // Rank All button (only show if unranked items exist)
-                    if unrankedCount > 0 {
+                    if cachedUnrankedCount > 0 {
                         Button {
                             showRankAll = true
                         } label: {
                             HStack {
                                 Image(systemName: "star.fill")
-                                Text("Rank All (\(unrankedCount))")
+                                Text("Rank All (\(cachedUnrankedCount))")
                             }
                             .font(.subheadline)
                             .padding(.horizontal, 12)
@@ -246,27 +244,30 @@ struct SavedView: View {
         }
         .task {
             userId = AuthService.shared.currentUserId() ?? "guest"
-            // Pre-compute predictions in background to avoid blocking UI
-            await loadPredictions()
+            updateUnrankedCount()
+            // Only pre-load predictions if sort is set to predicted
+            if sortOrder == .predicted {
+                await loadPredictions()
+            }
         }
         .onChange(of: sortOrder) { _, newValue in
             if newValue == .predicted && !isPredictionsLoaded {
                 Task { await loadPredictions() }
             }
         }
+        .onChange(of: allUserItems.count) { _, _ in
+            // Update unranked count when items change
+            updateUnrankedCount()
+        }
     }
 
     private func loadPredictions() async {
-        let currentItemCount = watchlistItems.count
-
-        // Reload if items changed or never loaded
-        guard !isPredictionsLoaded || currentItemCount != lastLoadedItemCount else { return }
+        guard !isPredictionsLoaded else { return }
 
         // Get all movies from watchlist
         let movies = watchlistItems.compactMap { $0.movie }
         guard !movies.isEmpty else {
             isPredictionsLoaded = true
-            lastLoadedItemCount = currentItemCount
             return
         }
 
@@ -282,7 +283,6 @@ struct SavedView: View {
         await MainActor.run {
             predictionCache = newCache
             isPredictionsLoaded = true
-            lastLoadedItemCount = currentItemCount
         }
     }
     
