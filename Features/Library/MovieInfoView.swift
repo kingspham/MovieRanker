@@ -99,10 +99,29 @@ struct MovieInfoView: View {
                     onReRank: handleReRank,
                     onRankNow: { if let m = movie { activeSheet = .ranking(m) } },
                     onMarkWatched: { if let m = movie { activeSheet = .log(m, myLog) } },
+                    onEditLog: { if let m = movie { activeSheet = .log(m, myLog) } },
                     onSaveToWatchlist: { Task { await saveToWatchlist() } },
                     onAddToList: { list in Task { await addToList(list) } },
                     onCreateList: { showCreateListAlert = true }
                 )
+
+                if myLog != nil {
+                    Button {
+                        if let m = movie { activeSheet = .log(m, myLog) }
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "square.and.pencil")
+                            Text("Edit Log Details")
+                        }
+                        .font(.subheadline).bold()
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                        .background(Color.gray.opacity(0.12))
+                        .cornerRadius(10)
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.horizontal)
+                }
                 
                 Divider().padding(.horizontal)
                 
@@ -520,13 +539,13 @@ struct MovieInfoView: View {
 
         // Fetch and filter in memory (predicates have issues with captured variables and optional chaining)
         let allLogs = (try? context.fetch(FetchDescriptor<LogEntry>())) ?? []
-        myLog = allLogs.first { $0.movie?.id == movieID && $0.ownerId == userId }
+        myLog = allLogs.first { $0.movie?.id == movieID && ($0.ownerId == userId || $0.ownerId == "guest") }
 
         let allScores = (try? context.fetch(FetchDescriptor<Score>())) ?? []
-        myScore = allScores.first { $0.movieID == movieID && $0.ownerId == userId }
+        myScore = allScores.first { $0.movieID == movieID && ($0.ownerId == userId || $0.ownerId == "guest") }
 
         let allItems = (try? context.fetch(FetchDescriptor<UserItem>())) ?? []
-        let watchlistItems = allItems.filter { $0.movie?.id == movieID && $0.state == .watchlist && $0.ownerId == userId }
+        let watchlistItems = allItems.filter { $0.movie?.id == movieID && $0.state == .watchlist && ($0.ownerId == userId || $0.ownerId == "guest") }
         isInWatchlist = !watchlistItems.isEmpty
     }
 }
@@ -667,6 +686,7 @@ private struct ActionsRowView: View {
     let onReRank: () -> Void
     let onRankNow: () -> Void
     let onMarkWatched: () -> Void
+    let onEditLog: () -> Void
     let onSaveToWatchlist: () -> Void
     let onAddToList: (CustomList) -> Void
     let onCreateList: () -> Void
@@ -718,6 +738,10 @@ private struct ActionsRowView: View {
             }
             .disabled(isInWatchlist)
             Menu {
+                if hasLog {
+                    Button { onEditLog() } label: { Label("Edit Log", systemImage: "square.and.pencil") }
+                    Divider()
+                }
                 Text("Add to List")
                 ForEach(myLists.filter { $0.ownerId == userId }) { list in
                     Button { onAddToList(list) } label: { Label(list.name, systemImage: "list.bullet") }

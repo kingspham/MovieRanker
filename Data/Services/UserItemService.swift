@@ -109,7 +109,7 @@ class UserItemService {
         // Create a set of (movie_id, state, owner_id) tuples to detect same-movie duplicates
         let localItemKeys = Set(allLocalItems.compactMap { item -> String? in
             guard let movieId = item.movie?.id else { return nil }
-            return "\(movieId)|\(item.state.rawValue)|\(item.ownerId ?? "")"
+            return "\(movieId)|\(item.state.rawValue)|\(item.ownerId)"
         })
 
         for cloudItem in cloudItems {
@@ -177,4 +177,3 @@ struct UserItemDTO: Codable {
     let state: String // "seen", "watchlist", "favorite"
     let created_at: Date
 }
-

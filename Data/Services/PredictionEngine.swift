@@ -252,8 +252,11 @@ final class LinearPredictionEngine: PredictionEngine {
         let dataPoints = relevantScores.count + (genrePrediction != nil ? 1 : 0) + (talentPrediction != nil ? 1 : 0)
         let confidence = min(Double(dataPoints) / 8.0, 0.9)
 
-        // Clamp to valid range
-        finalScore = min(max(finalScore, 1.0), 10.0)
+        finalScore = applyUserSpread(
+            score: finalScore,
+            baselineScores: relevantScores,
+            dataPoints: dataPoints
+        )
 
         return PredictionExplanation(
             score: finalScore,
@@ -381,7 +384,11 @@ final class LinearPredictionEngine: PredictionEngine {
         }
 
         let confidence = min(Double(sameTypeScores.count) / 10.0, 0.9)
-        finalScore = min(max(finalScore, 1.0), 10.0)
+        finalScore = applyUserSpread(
+            score: finalScore,
+            baselineScores: sameTypeScores,
+            dataPoints: sameTypeScores.count
+        )
 
         return PredictionExplanation(
             score: finalScore,
@@ -771,6 +778,28 @@ final class LinearPredictionEngine: PredictionEngine {
         }
 
         return scores.reduce(0, +) / Double(scores.count)
+    }
+
+    private func applyUserSpread(score: Double, baselineScores: [Score], dataPoints: Int) -> Double {
+        guard dataPoints >= 6 else { return min(max(score, 1.0), 10.0) }
+        let ratings = baselineScores.map { Double($0.display100) / 10.0 }
+        guard !ratings.isEmpty else { return min(max(score, 1.0), 10.0) }
+
+        let userAvg = ratings.reduce(0, +) / Double(ratings.count)
+        let variance = ratings.map { pow($0 - userAvg, 2) }.reduce(0, +) / Double(ratings.count)
+        let stdDev = sqrt(variance)
+
+        let multiplier: Double
+        if stdDev < 1.1 {
+            multiplier = 1.7
+        } else if stdDev < 1.6 {
+            multiplier = 1.4
+        } else {
+            multiplier = 1.2
+        }
+
+        let adjusted = userAvg + (score - userAvg) * multiplier
+        return min(max(adjusted, 1.0), 10.0)
     }
 
     private func fetchMovie(id: UUID, context: ModelContext) -> Movie? {
