@@ -296,7 +296,11 @@ struct SearchView: View {
                 guard !Task.isCancelled else { return }
                 await performUnifiedSearch()
             }
-            .task { await loadDiscovery() }
+            .task {
+                // Load userId first
+                userId = AuthService.shared.currentUserId() ?? "guest"
+                await loadDiscovery()
+            }
         }
     }
 
@@ -385,7 +389,19 @@ struct SearchView: View {
     }
 
     private func loadSuggestedForYou(client: TMDbClient) async {
-        let userScores = allScores.filter { ($0.ownerId == userId || $0.ownerId == "guest") && $0.display100 >= 70 }
+        // Try multiple thresholds to find user's preferences
+        let allUserScores = allScores.filter { $0.ownerId == userId || $0.ownerId == "guest" }
+
+        // Try high scores first (70+), then medium (60+), then any score (50+)
+        var userScores = allUserScores.filter { $0.display100 >= 70 }
+        if userScores.isEmpty {
+            userScores = allUserScores.filter { $0.display100 >= 60 }
+        }
+        if userScores.isEmpty {
+            userScores = allUserScores.filter { $0.display100 >= 50 }
+        }
+
+        print("🎬 Suggestions: Found \(userScores.count) qualifying scores out of \(allUserScores.count) total")
 
         var genreCount: [Int: Int] = [:]
         var seenTmdbIds = Set<Int>()
@@ -399,21 +415,37 @@ struct SearchView: View {
             }
         }
 
+        print("🎬 Suggestions: Collected \(genreCount.count) genres from \(seenTmdbIds.count) movies")
+
+        // If no genres from scores, use genres from all movies in library
+        if genreCount.isEmpty {
+            for movie in allMovies {
+                for genreId in movie.genreIDs ?? [] {
+                    genreCount[genreId, default: 0] += 1
+                }
+            }
+            print("🎬 Suggestions: Fallback to library genres - found \(genreCount.count) genres")
+        }
+
         let topGenres = genreCount.sorted { $0.value > $1.value }.prefix(3).map { $0.key }
-        guard !topGenres.isEmpty else { return }
+
+        // If still no genres, use popular defaults (Drama, Action, Comedy)
+        let finalGenres = topGenres.isEmpty ? [18, 28, 35] : Array(topGenres)
+        print("🎬 Suggestions: Using genres \(finalGenres)")
 
         let movieGenreToTVGenre: [Int: Int] = [
             28: 10759, 12: 10759, 878: 10765, 14: 10765
         ]
 
         do {
-            async let movieTask = client.discoverByGenres(genreIds: Array(topGenres))
-            async let tvTask = client.discoverTVByGenres(genreIds: Array(topGenres.map { movieGenreToTVGenre[$0] ?? $0 }))
+            async let movieTask = client.discoverByGenres(genreIds: finalGenres)
+            async let tvTask = client.discoverTVByGenres(genreIds: finalGenres.map { movieGenreToTVGenre[$0] ?? $0 })
             let (movieResponse, tvResponse) = try await (movieTask, tvTask)
             let movieSuggestions = movieResponse.results.filter { !seenTmdbIds.contains($0.id) }
             let tvSuggestions = tvResponse.results.filter { !seenTmdbIds.contains($0.id) }
             self.suggestedMovies = Array(movieSuggestions.prefix(10))
             self.suggestedShows = Array(tvSuggestions.prefix(10))
+            print("🎬 Suggestions: Loaded \(suggestedMovies.count) movies, \(suggestedShows.count) shows")
         } catch {
             print("Suggestions Error: \(error)")
         }
@@ -425,29 +457,7 @@ struct SearchView: View {
             HStack(spacing: 12) {
                 // Handle person results differently (circular profile image)
                 if item.mediaType == "person" {
-                    if let profilePath = item.profilePath,
-                       let url = TMDbClient.makeImageURL(path: profilePath, size: .w185) {
-                        AsyncImage(url: url) { phase in
-                            if let img = phase.image {
-                                img.resizable().scaledToFill()
-                            } else {
-                                Circle().fill(Color.gray.opacity(0.2))
-                                    .overlay(
-                                        Image(systemName: "person.fill")
-                                            .foregroundStyle(.gray)
-                                    )
-                            }
-                        }
-                        .frame(width: 48, height: 48)
-                        .clipShape(Circle())
-                    } else {
-                        Circle().fill(Color.gray.opacity(0.2))
-                            .frame(width: 48, height: 48)
-                            .overlay(
-                                Image(systemName: "person.fill")
-                                    .foregroundStyle(.gray)
-                            )
-                    }
+                    PersonProfileImage(profilePath: item.profilePath)
                 } else if let path = item.posterPath, path.contains("http") {
                     AsyncImage(url: URL(string: path)) { p in if let i = p.image { i.resizable().scaledToFill() } else { Color.gray.opacity(0.2) } }.frame(width: 48, height: 72).cornerRadius(4)
                 } else {
@@ -458,6 +468,48 @@ struct SearchView: View {
                     HStack(spacing: 6) { Badge(type: item.mediaType ?? "movie"); if let y = item.year { Text(String(y)).font(.caption).foregroundStyle(.secondary) } }
                 }
             }
+        }
+    }
+
+    // Separate view for person profile images to ensure proper loading
+    struct PersonProfileImage: View {
+        let profilePath: String?
+
+        var body: some View {
+            Group {
+                if let path = profilePath,
+                   let url = TMDbClient.makeImageURL(path: path, size: .w185) {
+                    AsyncImage(url: url) { phase in
+                        switch phase {
+                        case .empty:
+                            ProgressView()
+                                .frame(width: 48, height: 48)
+                        case .success(let image):
+                            image
+                                .resizable()
+                                .scaledToFill()
+                        case .failure:
+                            placeholderCircle
+                        @unknown default:
+                            placeholderCircle
+                        }
+                    }
+                    .frame(width: 48, height: 48)
+                    .clipShape(Circle())
+                } else {
+                    placeholderCircle
+                }
+            }
+        }
+
+        private var placeholderCircle: some View {
+            Circle()
+                .fill(Color.gray.opacity(0.2))
+                .frame(width: 48, height: 48)
+                .overlay(
+                    Image(systemName: "person.fill")
+                        .foregroundStyle(.gray)
+                )
         }
     }
 
@@ -722,11 +774,20 @@ struct SuggestedForYouView: View {
             }
         }
         .navigationTitle("Suggested For You")
-        .task { await loadSuggestions() }
+        .task { await loadSuggestionsForYou() }
     }
 
-    private func loadSuggestions() async {
-        let userScores = allScores.filter { ($0.ownerId == userId || $0.ownerId == "guest") && $0.display100 >= 70 }
+    private func loadSuggestionsForYou() async {
+        // Try multiple thresholds to find user's preferences
+        let allUserScores = allScores.filter { $0.ownerId == userId || $0.ownerId == "guest" }
+        var userScores = allUserScores.filter { $0.display100 >= 70 }
+        if userScores.isEmpty {
+            userScores = allUserScores.filter { $0.display100 >= 60 }
+        }
+        if userScores.isEmpty {
+            userScores = allUserScores.filter { $0.display100 >= 50 }
+        }
+
         var genreCount: [Int: Int] = [:]
         var seenTmdbIds = Set<Int>()
 
@@ -737,15 +798,28 @@ struct SuggestedForYouView: View {
             }
         }
 
+        // Fallback to library genres if no scores
+        if genreCount.isEmpty {
+            for movie in allMovies {
+                for genreId in movie.genreIDs ?? [] {
+                    genreCount[genreId, default: 0] += 1
+                }
+            }
+        }
+
         let topGenres = genreCount.sorted { $0.value > $1.value }.prefix(3).map { $0.key }
         topGenreNames = topGenres.compactMap { genreIdToName[$0] }
 
-        guard !topGenres.isEmpty else { isLoading = false; return }
+        // Use default genres if still empty
+        let finalGenres = topGenres.isEmpty ? [18, 28, 35] : Array(topGenres)
+        if topGenres.isEmpty {
+            topGenreNames = ["Drama", "Action", "Comedy"]
+        }
 
         do {
             let client = try TMDbClient()
-            async let movieTask = client.discoverByGenres(genreIds: Array(topGenres))
-            async let tvTask = client.discoverTVByGenres(genreIds: Array(topGenres.map { movieGenreToTVGenre[$0] ?? $0 }))
+            async let movieTask = client.discoverByGenres(genreIds: finalGenres)
+            async let tvTask = client.discoverTVByGenres(genreIds: finalGenres.map { movieGenreToTVGenre[$0] ?? $0 })
             let (movieResp, tvResp) = try await (movieTask, tvTask)
             var combined: [TMDbItem] = movieResp.results + tvResp.results
             combined = combined.filter { !seenTmdbIds.contains($0.id) }
@@ -820,7 +894,16 @@ struct SuggestedMediaView: View {
     }
 
     private func loadSuggestions() async {
-        let userScores = allScores.filter { ($0.ownerId == userId || $0.ownerId == "guest") && $0.display100 >= 70 }
+        // Try multiple thresholds to find user's preferences
+        let allUserScores = allScores.filter { $0.ownerId == userId || $0.ownerId == "guest" }
+        var userScores = allUserScores.filter { $0.display100 >= 70 }
+        if userScores.isEmpty {
+            userScores = allUserScores.filter { $0.display100 >= 60 }
+        }
+        if userScores.isEmpty {
+            userScores = allUserScores.filter { $0.display100 >= 50 }
+        }
+
         var genreCount: [Int: Int] = [:]
         var seenTmdbIds = Set<Int>()
 
@@ -831,20 +914,33 @@ struct SuggestedMediaView: View {
             }
         }
 
+        // Fallback to library genres if no scores
+        if genreCount.isEmpty {
+            for movie in allMovies {
+                for genreId in movie.genreIDs ?? [] {
+                    genreCount[genreId, default: 0] += 1
+                }
+            }
+        }
+
         let topGenres = genreCount.sorted { $0.value > $1.value }.prefix(3).map { $0.key }
         topGenreNames = topGenres.compactMap { genreIdToName[$0] }
 
-        guard !topGenres.isEmpty else { isLoading = false; return }
+        // Use default genres if still empty
+        let finalGenres = topGenres.isEmpty ? [18, 28, 35] : Array(topGenres)
+        if topGenres.isEmpty {
+            topGenreNames = ["Drama", "Action", "Comedy"]
+        }
 
         do {
             let client = try TMDbClient()
             let results: [TMDbItem]
             if mediaType == "movie" {
-                let response = try await client.discoverByGenres(genreIds: Array(topGenres))
+                let response = try await client.discoverByGenres(genreIds: finalGenres)
                 results = response.results
             } else {
-                let tvGenres = topGenres.map { movieGenreToTVGenre[$0] ?? $0 }
-                let response = try await client.discoverTVByGenres(genreIds: Array(tvGenres))
+                let tvGenres = finalGenres.map { movieGenreToTVGenre[$0] ?? $0 }
+                let response = try await client.discoverTVByGenres(genreIds: tvGenres)
                 results = response.results
             }
             var filtered = results.filter { !seenTmdbIds.contains($0.id) }

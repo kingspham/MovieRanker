@@ -170,7 +170,7 @@ struct WatchHistoryView: View {
                                 }
                             }
                         }
-                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                             Button(role: .destructive) {
                                 deleteLogEntry(log, movie: movie)
                             } label: {
@@ -268,23 +268,18 @@ struct EditEntrySheet: View {
 
                 // Date Section
                 Section("When") {
+                    DatePicker(
+                        isBook ? "Date Read" : "Date Watched",
+                        selection: $watchedOn,
+                        displayedComponents: .date
+                    )
+
                     if log.watchedOn != nil {
-                        DatePicker(
-                            isBook ? "Date Read" : "Date Watched",
-                            selection: $watchedOn,
-                            displayedComponents: .date
-                        )
-                    } else {
-                        HStack {
-                            Text("Date Unknown")
-                                .foregroundStyle(.secondary)
-                            Spacer()
-                            Button("Set Date") {
-                                log.watchedOn = Date()
-                                watchedOn = Date()
-                            }
-                            .font(.caption)
-                            .buttonStyle(.borderedProminent)
+                        Button(role: .destructive) {
+                            log.watchedOn = nil
+                        } label: {
+                            Text("Clear Date")
+                                .font(.caption)
                         }
                     }
                 }
@@ -331,10 +326,8 @@ struct EditEntrySheet: View {
     }
 
     private func saveChanges() {
-        // Update the log entry
-        if log.watchedOn != nil {
-            log.watchedOn = watchedOn
-        }
+        // Update the log entry - always save the date from the DatePicker
+        log.watchedOn = watchedOn
 
         // Map platform string to WatchLocation
         if !isBook {

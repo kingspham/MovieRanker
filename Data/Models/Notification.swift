@@ -29,4 +29,19 @@ struct AppNotification: Codable, Identifiable {
         case createdAtString = "created_at"
         case actor = "profiles" // Joined table
     }
+
+    // Custom decoder to handle missing fields gracefully
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        userId = try container.decode(UUID.self, forKey: .userId)
+        actorId = try container.decode(UUID.self, forKey: .actorId)
+        type = try container.decode(String.self, forKey: .type)
+        // Make message optional with a default based on type
+        message = try container.decodeIfPresent(String.self, forKey: .message) ?? "New \(type) notification"
+        relatedId = try container.decodeIfPresent(UUID.self, forKey: .relatedId)
+        read = try container.decodeIfPresent(Bool.self, forKey: .read) ?? false
+        createdAtString = try container.decode(String.self, forKey: .createdAtString)
+        actor = try container.decodeIfPresent(SocialProfile.self, forKey: .actor)
+    }
 }

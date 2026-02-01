@@ -92,10 +92,12 @@ struct MovieInfoView: View {
 
                 ActionsRowView(
                     hasRanked: hasRanked,
+                    hasLog: myLog != nil,
                     isInWatchlist: isInWatchlist,
                     myLists: myLists,
                     userId: userId,
                     onReRank: handleReRank,
+                    onRankNow: { if let m = movie { activeSheet = .ranking(m) } },
                     onMarkWatched: { if let m = movie { activeSheet = .log(m, myLog) } },
                     onSaveToWatchlist: { Task { await saveToWatchlist() } },
                     onAddToList: { list in Task { await addToList(list) } },
@@ -658,18 +660,21 @@ private struct ScoreOrPredictionView: View {
 
 private struct ActionsRowView: View {
     let hasRanked: Bool
+    let hasLog: Bool
     let isInWatchlist: Bool
     let myLists: [CustomList]
     let userId: String
     let onReRank: () -> Void
+    let onRankNow: () -> Void
     let onMarkWatched: () -> Void
     let onSaveToWatchlist: () -> Void
     let onAddToList: (CustomList) -> Void
     let onCreateList: () -> Void
-    
+
     var body: some View {
         HStack(spacing: 12) {
             if hasRanked {
+                // Already ranked - show Re-Rank button
                 Button { onReRank() } label: {
                     Text("Re-Rank")
                         .fontWeight(.bold)
@@ -679,7 +684,19 @@ private struct ActionsRowView: View {
                         .foregroundColor(.white)
                         .cornerRadius(12)
                 }
+            } else if hasLog {
+                // Has log but no score - show Rank Now button
+                Button { onRankNow() } label: {
+                    Text("Rank Now")
+                        .fontWeight(.bold)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
+                        .background(Color.green)
+                        .foregroundColor(.white)
+                        .cornerRadius(12)
+                }
             } else {
+                // No log entry - show Mark as Watched
                 Button { onMarkWatched() } label: {
                     Text("Mark as Watched")
                         .fontWeight(.bold)
