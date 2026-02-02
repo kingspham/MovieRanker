@@ -14,11 +14,17 @@ struct PodcastInfoView: View {
     @State private var userId = "guest"
     @State private var showBrowser = false
     @State private var browserURL: URL?
+    @State private var prediction: PredictionExplanation?
     @Query private var allScores: [Score]
     
     var hasRanked: Bool {
         guard let m = movie else { return false }
-        return allScores.contains(where: { $0.movieID == m.id && $0.ownerId == userId })
+        return allScores.contains(where: { $0.movieID == m.id && ($0.ownerId == userId || $0.ownerId == "guest") })
+    }
+
+    var myScoreValue: Int? {
+        guard let m = movie else { return nil }
+        return allScores.first(where: { $0.movieID == m.id && ($0.ownerId == userId || $0.ownerId == "guest") })?.display100
     }
     
     var body: some View {
@@ -34,6 +40,9 @@ struct PodcastInfoView: View {
                         if let tags = item.tags, !tags.isEmpty { Text(tags.prefix(2).joined(separator: " • ")).font(.caption).foregroundStyle(.secondary) }
                     }
                 }.padding()
+                
+                PodcastScoreView(myScoreValue: myScoreValue, prediction: prediction)
+                    .padding(.horizontal)
                 
                 Button { DeepLinkManager.open(providerName: "Spotify", title: item.displayTitle) { url in browserURL = url; showBrowser = true } } label: { HStack { Image(systemName: "headphones"); Text("Listen Now") }.fontWeight(.bold).frame(maxWidth: .infinity).padding().background(Color.black).foregroundColor(.white).cornerRadius(12) }.padding(.horizontal)
                 
@@ -67,6 +76,10 @@ struct PodcastInfoView: View {
         .task {
             let actor = AuthService.shared.sessionActor(); if let s = try? await actor.session() { userId = s.userId }
             if movie == nil { await ensurePodcast() }
+            if let m = movie {
+                let engine = LinearPredictionEngine()
+                prediction = engine.predict(for: m, in: context, userId: userId)
+            }
         }
         .overlay(alignment: .top) { if showSuccess { SuccessToast(text: "Saved to Library") } }
     }
@@ -82,6 +95,43 @@ struct PodcastInfoView: View {
         }
     }
     // (Keep handleReRank / savePodcast)
-    private func handleReRank() { guard let m = movie else { return }; if let score = allScores.first(where: { $0.movieID == m.id && $0.ownerId == userId }) { context.delete(score); try? context.save() }; showRankingSheet = true }
+    private func handleReRank() { guard let m = movie else { return }; if let score = allScores.first(where: { $0.movieID == m.id && ($0.ownerId == userId || $0.ownerId == "guest") }) { context.delete(score); try? context.save() }; showRankingSheet = true }
     private func savePodcast(as state: UserItem.State) { guard let m = movie else { return }; let targetID = m.tmdbID; let allItems = (try? context.fetch(FetchDescriptor<UserItem>())) ?? []; if let existingItem = allItems.first(where: { $0.movie?.tmdbID == targetID }) { existingItem.state = state } else { context.insert(UserItem(movie: m, state: state, ownerId: userId)) }; try? context.save(); showSuccess = true; DispatchQueue.main.asyncAfter(deadline: .now() + 2) { showSuccess = false } }
+}
+
+private struct PodcastScoreView: View {
+    let myScoreValue: Int?
+    let prediction: PredictionExplanation?
+
+    var body: some View {
+        VStack(spacing: 12) {
+            if let score = myScoreValue {
+                HStack(spacing: 12) {
+                    ZStack {
+                        Circle().stroke(Color.blue, lineWidth: 4).frame(width: 50, height: 50)
+                        Text("\(score)").font(.headline).fontWeight(.black).foregroundStyle(.blue)
+                    }
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Your Score").font(.caption).textCase(.uppercase).foregroundStyle(.secondary)
+                        Text("Ranked on Leaderboard").font(.caption2).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                }
+            } else if let pred = prediction {
+                HStack(spacing: 12) {
+                    ZStack {
+                        Circle().stroke(Color.purple, lineWidth: 4).frame(width: 50, height: 50)
+                        Text("\(Int(pred.score * 10))").font(.headline).fontWeight(.black).foregroundStyle(.purple)
+                    }
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Predicted Score").font(.caption).textCase(.uppercase).foregroundStyle(.secondary)
+                        if !pred.reasons.isEmpty {
+                            Text(pred.reasons.first ?? "Based on your tastes").font(.caption2).foregroundStyle(.secondary)
+                        }
+                    }
+                    Spacer()
+                }
+            }
+        }
+    }
 }
