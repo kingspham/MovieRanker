@@ -45,7 +45,7 @@ struct FollowListView: View {
                                 .overlay(
                                     Text(String(profile.displayName.prefix(1)).uppercased())
                                         .font(.headline)
-                                        .foregroundStyle(.accentColor)
+                                        .foregroundStyle(Color.accentColor)
                                 )
 
                             VStack(alignment: .leading, spacing: 2) {
