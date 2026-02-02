@@ -259,10 +259,7 @@ struct SavedView: View {
         .task {
             userId = AuthService.shared.currentUserId() ?? "guest"
             updateUnrankedCount()
-            // Only pre-load predictions if sort is set to predicted
-            if sortOrder == .predicted {
-                await loadPredictions()
-            }
+            // Don't block page load - predictions load lazily when needed
         }
         .onChange(of: sortOrder) { _, newValue in
             if newValue == .predicted && !isPredictionsLoaded {

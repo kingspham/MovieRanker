@@ -358,8 +358,20 @@ struct SearchView: View {
                 $0.mediaType == "movie" || $0.mediaType == "tv" || $0.mediaType == "person"
             }
 
+            // Debug: Log person results found
+            let personResults = visualResults.filter { $0.mediaType == "person" }
+            if !personResults.isEmpty {
+                print("🔍 Search found \(personResults.count) person(s): \(personResults.map { "\($0.displayTitle) (pop: \($0.popularity ?? 0), profile: \($0.profilePath ?? "nil"))" }.joined(separator: ", "))")
+            }
+
             // Reorder results: prioritize persons when query looks like a name
             let reorderedResults = reorderSearchResults(visualResults, query: searchQuery)
+
+            // Debug: Check if persons are first after reordering
+            if !personResults.isEmpty {
+                let firstFew = reorderedResults.prefix(3).map { "\($0.displayTitle) (\($0.mediaType ?? "?"))" }
+                print("🔍 After reorder, first 3: \(firstFew.joined(separator: ", "))")
+            }
 
             self.results = reorderedResults + bookResults + podcastResults
             self.hasSearched = true
@@ -520,8 +532,18 @@ struct SearchView: View {
             async let movieTask = client.discoverByGenres(genreIds: finalGenres)
             async let tvTask = client.discoverTVByGenres(genreIds: finalGenres.map { movieGenreToTVGenre[$0] ?? $0 })
             let (movieResponse, tvResponse) = try await (movieTask, tvTask)
-            let movieSuggestions = movieResponse.results.filter { !seenTmdbIds.contains($0.id) }
-            let tvSuggestions = tvResponse.results.filter { !seenTmdbIds.contains($0.id) }
+
+            // Filter out already-seen content and deduplicate by ID
+            var seenMovieIds = Set<Int>()
+            let movieSuggestions = movieResponse.results
+                .filter { !seenTmdbIds.contains($0.id) }
+                .filter { seenMovieIds.insert($0.id).inserted }
+
+            var seenShowIds = Set<Int>()
+            let tvSuggestions = tvResponse.results
+                .filter { !seenTmdbIds.contains($0.id) }
+                .filter { seenShowIds.insert($0.id).inserted }
+
             self.suggestedMovies = Array(movieSuggestions.prefix(10))
             self.suggestedShows = Array(tvSuggestions.prefix(10))
             print("🎬 Suggestions: Loaded \(suggestedMovies.count) movies, \(suggestedShows.count) shows")
