@@ -63,7 +63,7 @@ struct NotificationRow: View {
     let note: AppNotification
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(alignment: .top, spacing: 12) {
             // Actor Avatar
             Circle()
                 .fill(avatarColor)
@@ -82,23 +82,22 @@ struct NotificationRow: View {
                 )
 
             VStack(alignment: .leading, spacing: 4) {
-                // Main notification text
-                HStack(spacing: 4) {
-                    Text(note.actor?.displayName ?? "Someone")
-                        .fontWeight(.semibold)
-                    Text(note.message)
-                        .foregroundStyle(.primary)
-                }
+                // Main notification text - using Text concatenation for proper wrapping
+                (Text(note.actor?.displayName ?? "Someone")
+                    .fontWeight(.semibold) +
+                Text(" ") +
+                Text(note.message)
+                    .foregroundColor(.primary))
                 .font(.subheadline)
-                .lineLimit(2)
+                .lineLimit(3)
+                .fixedSize(horizontal: false, vertical: true)
 
                 // Timestamp
                 Text(note.createdAt.formatted(.relative(presentation: .named)))
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
-
-            Spacer()
+            .frame(maxWidth: .infinity, alignment: .leading)
 
             // Icon based on type
             ZStack {

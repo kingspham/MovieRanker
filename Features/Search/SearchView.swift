@@ -392,32 +392,41 @@ struct SearchView: View {
 
         let words = query.split(separator: " ")
 
-        // Check if query looks like a person's name:
-        // - 1-4 words (first name, first+last, first middle last, etc.)
-        // - No numbers
-        // - Each word starts with capital or is all lowercase
+        // Check if query looks like a person's name (1-4 words, no numbers)
         let looksLikeName = words.count >= 1 && words.count <= 4 && !query.contains(where: { $0.isNumber })
 
         // Famous actor/director first names that strongly suggest person search
-        let famousFirstNames = ["jack", "tom", "brad", "leonardo", "george", "will", "morgan", "samuel",
+        let famousFirstNames = Set(["jack", "tom", "brad", "leonardo", "george", "will", "morgan", "samuel",
                                  "robert", "johnny", "harrison", "denzel", "ryan", "chris", "emma", "jennifer",
                                  "scarlett", "natalie", "meryl", "julia", "sandra", "margot", "timothee",
-                                 "zendaya", "dwayne", "keanu", "nicolas", "adam", "ben", "matt", "mark"]
+                                 "zendaya", "dwayne", "keanu", "nicolas", "adam", "ben", "matt", "mark",
+                                 "florence", "saoirse", "cate", "anne", "kate", "olivia", "viola", "lupita",
+                                 "michael", "james", "jake", "daniel", "henry", "oscar", "pedro", "jason",
+                                 "idris", "chadwick", "anthony", "eddie", "rami", "joaquin", "jared", "seth",
+                                 "paul", "steve", "jim", "john", "sean", "liam", "hugh", "colin", "ewan"])
 
         let firstWord = words.first?.lowercased() ?? ""
         let isLikelyActor = famousFirstNames.contains(firstWord)
 
-        // Prioritize persons if:
-        // 1. Query looks like a name AND there are person results with high popularity
-        // 2. Query matches a famous first name
+        // Prioritize persons if query looks like a name
         if looksLikeName || isLikelyActor {
             let persons = results.filter { $0.mediaType == "person" }
-            let topPersons = persons.sorted { ($0.popularity ?? 0) > ($1.popularity ?? 0) }
 
-            // Only prioritize persons if top one has decent popularity (real actor vs obscure)
-            if let topPerson = topPersons.first, (topPerson.popularity ?? 0) > 5.0 {
+            // Find persons whose name matches the query
+            let matchingPersons = persons.filter { person in
+                let personName = person.displayTitle.lowercased()
+                return personName.hasPrefix(queryLower) || personName.contains(queryLower)
+            }
+
+            // Use matching persons first, otherwise all persons sorted by popularity
+            let sortedPersons = (matchingPersons.isEmpty ? persons : matchingPersons)
+                .sorted { ($0.popularity ?? 0) > ($1.popularity ?? 0) }
+
+            // Always put persons first if we have any (removes the popularity threshold)
+            if !sortedPersons.isEmpty {
                 let others = results.filter { $0.mediaType != "person" }
-                return topPersons + others
+                    .sorted { ($0.popularity ?? 0) > ($1.popularity ?? 0) }
+                return sortedPersons + others
             }
         }
 
@@ -553,28 +562,27 @@ struct SearchView: View {
         }
 
         var body: some View {
-            Group {
-                if let url = imageURL {
-                    AsyncImage(url: url) { phase in
-                        switch phase {
-                        case .empty:
-                            ProgressView()
-                                .frame(width: 48, height: 48)
-                        case .success(let image):
-                            image
-                                .resizable()
-                                .scaledToFill()
-                        case .failure:
-                            placeholderCircle
-                        @unknown default:
-                            placeholderCircle
-                        }
+            if let url = imageURL {
+                AsyncImage(url: url, transaction: Transaction(animation: .easeIn)) { phase in
+                    switch phase {
+                    case .empty:
+                        placeholderCircle
+                            .overlay(ProgressView().scaleEffect(0.6))
+                    case .success(let image):
+                        image
+                            .resizable()
+                            .scaledToFill()
+                            .frame(width: 48, height: 48)
+                            .clipShape(Circle())
+                    case .failure:
+                        placeholderCircle
+                    @unknown default:
+                        placeholderCircle
                     }
-                    .frame(width: 48, height: 48)
-                    .clipShape(Circle())
-                } else {
-                    placeholderCircle
                 }
+                .frame(width: 48, height: 48)
+            } else {
+                placeholderCircle
             }
         }
 

@@ -232,8 +232,27 @@ struct LeaderboardView: View {
                 rows.append(Row(id: s.id, movieID: m.id, rank: 0, title: m.title, subtitle: subtitle, posterPath: m.posterPath, score: Double(s.display100), tmdbID: m.tmdbID, mediaType: m.mediaType, dateAdded: m.createdAt, genreIDs: m.genreIDs, metaScore: m.metaScore, imdbRating: m.imdbRating, rtRating: m.rottenTomatoesRating, year: m.year))
             }
         }
-        switch sortOrder { case .rank: rows.sort { $0.score > $1.score }; case .title: rows.sort { $0.title < $1.title }; case .date: rows.sort { $0.dateAdded > $1.dateAdded }; case .metacritic: rows.sort { (Int($0.metaScore ?? "0") ?? 0) > (Int($1.metaScore ?? "0") ?? 0) }; case .imdb: rows.sort { (Double($0.imdbRating ?? "0") ?? 0) > (Double($1.imdbRating ?? "0") ?? 0) }; case .rottenTomatoes: rows.sort { (Int($0.rtRating?.replacingOccurrences(of: "%", with: "") ?? "0") ?? 0) > (Int($1.rtRating?.replacingOccurrences(of: "%", with: "") ?? "0") ?? 0) } }
-        var finalRows: [Row] = []; for (index, row) in rows.enumerated() { finalRows.append(Row(id: row.id, movieID: row.movieID, rank: index + 1, title: row.title, subtitle: row.subtitle, posterPath: row.posterPath, score: row.score, tmdbID: row.tmdbID, mediaType: row.mediaType, dateAdded: row.dateAdded, genreIDs: row.genreIDs, metaScore: row.metaScore, imdbRating: row.imdbRating, rtRating: row.rtRating, year: row.year)) }; return finalRows
+
+        // Sort rows
+        switch sortOrder {
+        case .rank: rows.sort { $0.score > $1.score }
+        case .title: rows.sort { $0.title < $1.title }
+        case .date: rows.sort { $0.dateAdded > $1.dateAdded }
+        case .metacritic: rows.sort { (Int($0.metaScore ?? "0") ?? 0) > (Int($1.metaScore ?? "0") ?? 0) }
+        case .imdb: rows.sort { (Double($0.imdbRating ?? "0") ?? 0) > (Double($1.imdbRating ?? "0") ?? 0) }
+        case .rottenTomatoes: rows.sort { (Int($0.rtRating?.replacingOccurrences(of: "%", with: "") ?? "0") ?? 0) > (Int($1.rtRating?.replacingOccurrences(of: "%", with: "") ?? "0") ?? 0) }
+        }
+
+        // Compute ranks per media type (each category has its own 1-100 scale)
+        var rankByType: [String: Int] = [:]
+        var finalRows: [Row] = []
+        for row in rows {
+            let typeKey = row.mediaType
+            let currentRank = (rankByType[typeKey] ?? 0) + 1
+            rankByType[typeKey] = currentRank
+            finalRows.append(Row(id: row.id, movieID: row.movieID, rank: currentRank, title: row.title, subtitle: row.subtitle, posterPath: row.posterPath, score: row.score, tmdbID: row.tmdbID, mediaType: row.mediaType, dateAdded: row.dateAdded, genreIDs: row.genreIDs, metaScore: row.metaScore, imdbRating: row.imdbRating, rtRating: row.rtRating, year: row.year))
+        }
+        return finalRows
     }
     private func getAvailableGenres() -> [Int] { let myMovies = movies.filter { $0.ownerId == userId }; var genreSet = Set<Int>(); for m in myMovies { if filter == .movies && m.mediaType != "movie" { continue }; if filter == .shows && m.mediaType != "tv" { continue }; for g in m.genreIDs { genreSet.insert(g) } }; return Array(genreSet).sorted() }
     private func deleteScore(scoreID: UUID) { if let score = scores.first(where: { $0.id == scoreID }) { context.delete(score); try? context.save() } }
