@@ -273,20 +273,60 @@ struct PublicProfileView: View {
     }
 
     private func calculateTasteSimilarity(myMovies: [Movie]) {
-        // Calculate genre overlap between users
+        // Calculate taste similarity based on:
+        // 1. Rating agreement on shared movies (weighted heavily)
+        // 2. Genre overlap (lighter weight)
         guard !items.isEmpty else { return }
 
-        // Get my genre counts
-        var myGenreCounts: [Int: Int] = [:]
-        for movie in myMovies {
-            for genreId in movie.genreIDs {
-                myGenreCounts[genreId, default: 0] += 1
-            }
+        // Get my scores for comparison
+        let allScores = (try? context.fetch(FetchDescriptor<Score>())) ?? []
+        let myScores = allScores.filter { $0.ownerId == myId }
+        let myScoreLookup = Dictionary(uniqueKeysWithValues: myScores.compactMap { score -> (Int, Int)? in
+            guard let movie = myMovies.first(where: { $0.id == score.movieID }),
+                  let tmdbID = movie.tmdbID else { return nil }
+            return (tmdbID, score.display100)
+        })
+
+        // Calculate rating similarity for shared movies
+        var ratingDifferences: [Double] = []
+        for theirLog in items {
+            guard let theirScore = theirLog.score,
+                  let myScore = myScoreLookup[theirLog.tmdbID] else { continue }
+
+            // Calculate difference (0-100 scale)
+            let diff = abs(Double(myScore) - Double(theirScore))
+            ratingDifferences.append(diff)
         }
 
-        // Similarity based on shared items relative to total
-        let sharedRatio = theirTotal > 0 ? Double(sharedCount) / Double(theirTotal) : 0
-        tasteSimilarity = Int(sharedRatio * 100)
+        var similarity: Double = 0
+
+        if !ratingDifferences.isEmpty {
+            // Average rating difference
+            let avgDiff = ratingDifferences.reduce(0, +) / Double(ratingDifferences.count)
+
+            // Convert to similarity (0-100)
+            // Max diff is 100, so (100 - avgDiff) / 100 gives 0-1
+            let ratingSimilarity = max(0, (100 - avgDiff)) / 100
+
+            // Weight: 70% rating agreement, 30% shared ratio
+            let sharedRatio = theirTotal > 0 ? Double(sharedCount) / Double(min(theirTotal, myMovies.count)) : 0
+
+            similarity = (ratingSimilarity * 0.7 + sharedRatio * 0.3) * 100
+        } else if sharedCount > 0 {
+            // No ratings to compare, but have shared movies - use genre overlap
+            var myGenreCounts: [Int: Int] = [:]
+            for movie in myMovies {
+                for genreId in movie.genreIDs {
+                    myGenreCounts[genreId, default: 0] += 1
+                }
+            }
+
+            // Use shared ratio with a penalty for no rating data
+            let sharedRatio = theirTotal > 0 ? Double(sharedCount) / Double(min(theirTotal, myMovies.count)) : 0
+            similarity = sharedRatio * 50 // Cap at 50% without rating data
+        }
+
+        tasteSimilarity = Int(min(100, max(0, similarity)))
     }
 
     private func loadFollowCounts() async {

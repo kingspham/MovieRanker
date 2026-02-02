@@ -15,6 +15,8 @@ struct SearchView: View {
     @State private var streaming: [TMDbItem] = []
     @State private var suggestedMovies: [TMDbItem] = []
     @State private var suggestedShows: [TMDbItem] = []
+    @State private var suggestedBooks: [TMDbItem] = []
+    @State private var suggestedPodcasts: [TMDbItem] = []
 
     // Query user's scores for personalized suggestions
     @Query private var allScores: [Score]
@@ -276,6 +278,28 @@ struct SearchView: View {
                             }.listRowInsets(EdgeInsets())
                         }
                     }
+
+                    // Suggested Books
+                    if !suggestedBooks.isEmpty {
+                        Section(header: Text("📚 Popular Books")) {
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                HStack(spacing: 16) {
+                                    ForEach(suggestedBooks, id: \.id) { book in DiscoveryCard(item: book) }
+                                }.padding(.vertical, 8)
+                            }.listRowInsets(EdgeInsets())
+                        }
+                    }
+
+                    // Suggested Podcasts
+                    if !suggestedPodcasts.isEmpty {
+                        Section(header: Text("🎙️ Top Podcasts")) {
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                HStack(spacing: 16) {
+                                    ForEach(suggestedPodcasts, id: \.id) { podcast in DiscoveryCard(item: podcast) }
+                                }.padding(.vertical, 8)
+                            }.listRowInsets(EdgeInsets())
+                        }
+                    }
                 }
             }
             #if os(iOS)
@@ -357,21 +381,47 @@ struct SearchView: View {
 
     private func reorderSearchResults(_ results: [TMDbItem], query: String) -> [TMDbItem] {
         let queryLower = query.lowercased()
-        let titleKeywords = ["the ", "movie", "show", "series", "season", "part", "episode", "vol", "2", "3", "ii", "iii"]
+
+        // Title keywords that suggest user is searching for a movie/show
+        let titleKeywords = ["the ", "movie", "show", "series", "season", "part", "episode", "vol", "2", "3", "ii", "iii", "movie:", "film"]
         let looksLikeTitle = titleKeywords.contains { queryLower.contains($0) }
 
+        // If it explicitly looks like a title search, return as-is
         if looksLikeTitle { return results }
 
         let words = query.split(separator: " ")
-        let looksLikeName = words.count >= 2 && words.count <= 4 && !query.contains(where: { $0.isNumber })
 
-        if looksLikeName {
-            let persons = results.filter { $0.mediaType == "person" }.sorted { ($0.popularity ?? 0) > ($1.popularity ?? 0) }
-            let others = results.filter { $0.mediaType != "person" }
-            return persons + others
+        // Check if query looks like a person's name:
+        // - 1-4 words (first name, first+last, first middle last, etc.)
+        // - No numbers
+        // - Each word starts with capital or is all lowercase
+        let looksLikeName = words.count >= 1 && words.count <= 4 && !query.contains(where: { $0.isNumber })
+
+        // Famous actor/director first names that strongly suggest person search
+        let famousFirstNames = ["jack", "tom", "brad", "leonardo", "george", "will", "morgan", "samuel",
+                                 "robert", "johnny", "harrison", "denzel", "ryan", "chris", "emma", "jennifer",
+                                 "scarlett", "natalie", "meryl", "julia", "sandra", "margot", "timothee",
+                                 "zendaya", "dwayne", "keanu", "nicolas", "adam", "ben", "matt", "mark"]
+
+        let firstWord = words.first?.lowercased() ?? ""
+        let isLikelyActor = famousFirstNames.contains(firstWord)
+
+        // Prioritize persons if:
+        // 1. Query looks like a name AND there are person results with high popularity
+        // 2. Query matches a famous first name
+        if looksLikeName || isLikelyActor {
+            let persons = results.filter { $0.mediaType == "person" }
+            let topPersons = persons.sorted { ($0.popularity ?? 0) > ($1.popularity ?? 0) }
+
+            // Only prioritize persons if top one has decent popularity (real actor vs obscure)
+            if let topPerson = topPersons.first, (topPerson.popularity ?? 0) > 5.0 {
+                let others = results.filter { $0.mediaType != "person" }
+                return topPersons + others
+            }
         }
 
-        return results
+        // Default: sort by popularity across all types
+        return results.sorted { ($0.popularity ?? 0) > ($1.popularity ?? 0) }
     }
 
     private func loadDiscovery() async {
@@ -380,10 +430,23 @@ struct SearchView: View {
             async let trendTask = client.getTrending()
             async let theaterTask = client.getNowPlaying()
             async let streamTask = client.getStreaming()
+            async let booksTask = BooksAPI().getTrendingBooks()
+            async let podcastsTask = PodcastsAPI().getTopPodcasts()
+
             let (trend, theater, stream) = try await (trendTask, theaterTask, streamTask)
             self.trending = trend.results
             self.inTheaters = theater.results
             self.streaming = stream.results
+
+            // Load books and podcasts (don't fail if these error)
+            do {
+                self.suggestedBooks = try await booksTask
+            } catch { print("Books Error: \(error)") }
+
+            do {
+                self.suggestedPodcasts = try await podcastsTask
+            } catch { print("Podcasts Error: \(error)") }
+
             await loadSuggestedForYou(client: client)
         } catch { print("Discovery Error: \(error)") }
     }
@@ -475,10 +538,16 @@ struct SearchView: View {
     struct PersonProfileImage: View {
         let profilePath: String?
 
+        private var imageURL: URL? {
+            guard let path = profilePath, !path.isEmpty else { return nil }
+            // Ensure path starts with "/" for TMDb API
+            let normalizedPath = path.hasPrefix("/") ? path : "/\(path)"
+            return URL(string: "https://image.tmdb.org/t/p/w185\(normalizedPath)")
+        }
+
         var body: some View {
             Group {
-                if let path = profilePath,
-                   let url = TMDbClient.makeImageURL(path: path, size: .w185) {
+                if let url = imageURL {
                     AsyncImage(url: url) { phase in
                         switch phase {
                         case .empty:
@@ -504,11 +573,12 @@ struct SearchView: View {
 
         private var placeholderCircle: some View {
             Circle()
-                .fill(Color.gray.opacity(0.2))
+                .fill(Color.gray.opacity(0.3))
                 .frame(width: 48, height: 48)
                 .overlay(
                     Image(systemName: "person.fill")
-                        .foregroundStyle(.gray)
+                        .font(.title3)
+                        .foregroundStyle(.secondary)
                 )
         }
     }
