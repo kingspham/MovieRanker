@@ -1,10 +1,10 @@
-// LeaderboardView.swift
+// ActivityLeaderboardView.swift
 // Shows activity leaderboard to give context to points
 
 import SwiftUI
 import SwiftData
 
-struct LeaderboardView: View {
+struct ActivityLeaderboardView: View {
     @Environment(\.modelContext) private var context
     @Query private var allUserItems: [UserItem]
     @Query private var allLogs: [LogEntry]
@@ -89,7 +89,7 @@ struct LeaderboardView: View {
                     if !leaderboard.isEmpty {
                         Section {
                             ForEach(leaderboard) { entry in
-                                LeaderboardRow(entry: entry, isCurrentUser: entry.id.uuidString == myUserId)
+                                ActivityLeaderboardRow(entry: entry, isCurrentUser: entry.id.uuidString == myUserId)
                             }
                         } header: {
                             Text("Top Users")
@@ -184,8 +184,8 @@ struct LeaderboardView: View {
     }
 }
 
-struct LeaderboardRow: View {
-    let entry: LeaderboardView.LeaderboardEntry
+struct ActivityLeaderboardRow: View {
+    let entry: ActivityLeaderboardView.LeaderboardEntry
     let isCurrentUser: Bool
 
     var body: some View {
