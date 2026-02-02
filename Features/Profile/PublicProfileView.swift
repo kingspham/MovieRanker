@@ -261,10 +261,10 @@ struct PublicProfileView: View {
     private func calculateTheirTaste(items: [PublicLog]) {
         // This would require genre IDs from the items - for now we'll show based on available data
         // In a real implementation, you'd fetch genre data for their logs
-        var genreCounts: [String: Int] = [:]
+        let genreCounts: [String: Int] = [:]
 
         // Simple implementation - this would be enhanced with actual genre data
-        for item in items {
+        for _ in items {
             // You'd look up genre IDs here from their logs
             // For now, this serves as a placeholder
         }

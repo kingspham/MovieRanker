@@ -498,7 +498,7 @@ struct SearchView: View {
         // If no genres from scores, use genres from all movies in library
         if genreCount.isEmpty {
             for movie in allMovies {
-                for genreId in movie.genreIDs ?? [] {
+                for genreId in movie.genreIDs {
                     genreCount[genreId, default: 0] += 1
                 }
             }
@@ -922,7 +922,7 @@ struct SuggestedForYouView: View {
         // Fallback to library genres if no scores
         if genreCount.isEmpty {
             for movie in allMovies {
-                for genreId in movie.genreIDs ?? [] {
+                for genreId in movie.genreIDs {
                     genreCount[genreId, default: 0] += 1
                 }
             }

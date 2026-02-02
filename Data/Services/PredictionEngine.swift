@@ -213,7 +213,7 @@ final class LinearPredictionEngine: PredictionEngine {
         }
 
         // METHOD 13: Strong negative signal check (override if user consistently dislikes similar content)
-        let negativeSignal = checkNegativeSignals(for: movie, attributeScores: attributeScores)
+        _ = checkNegativeSignals(for: movie, attributeScores: attributeScores)
 
         // Combine predictions with emphasis on STRONGEST signals
         var finalScore: Double
