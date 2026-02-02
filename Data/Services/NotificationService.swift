@@ -67,7 +67,7 @@ final class NotificationService: ObservableObject {
 
         for (name, selectQuery, userColumn) in queries {
             do {
-                let response: [AppNotification] = try await client
+                var response: [AppNotification] = try await client
                     .from("notifications")
                     .select(selectQuery)
                     .eq(userColumn, value: myId)
@@ -75,6 +75,13 @@ final class NotificationService: ObservableObject {
                     .limit(30)
                     .execute()
                     .value
+
+                // If we got notifications but no actor data, fetch profiles separately
+                let missingActors = response.filter { $0.actor == nil }.map { $0.actorId }
+                if !missingActors.isEmpty {
+                    print("🔔 Fetching \(missingActors.count) missing actor profiles...")
+                    await enrichNotificationsWithProfiles(&response)
+                }
 
                 self.notifications = response
                 self.unreadCount = response.filter { !$0.read }.count
@@ -84,7 +91,8 @@ final class NotificationService: ObservableObject {
 
                 // Debug: print first few notifications
                 for (index, notif) in response.prefix(3).enumerated() {
-                    print("  📬 [\(index)]: \(notif.type) - \(notif.message) - read: \(notif.read)")
+                    let actorName = notif.actor?.displayName ?? "unknown"
+                    print("  📬 [\(index)]: \(notif.type) from \(actorName) - read: \(notif.read)")
                 }
 
                 return // Success, exit loop
@@ -128,6 +136,34 @@ final class NotificationService: ObservableObject {
         self.lastFetchFailed = true
         self.consecutiveFailures += 1
         print("❌ All notification fetch patterns failed (attempt \(consecutiveFailures)) - backing off")
+    }
+
+    /// Fetch profiles for notifications that don't have actor data
+    private func enrichNotificationsWithProfiles(_ notifications: inout [AppNotification]) async {
+        let actorIds = Set(notifications.filter { $0.actor == nil }.map { $0.actorId })
+        guard !actorIds.isEmpty else { return }
+
+        do {
+            let profiles: [SocialProfile] = try await client
+                .from("profiles")
+                .select("*")
+                .in("id", values: Array(actorIds))
+                .execute()
+                .value
+
+            let profileMap = Dictionary(uniqueKeysWithValues: profiles.map { ($0.id, $0) })
+
+            // Create new notifications with enriched actor data
+            notifications = notifications.map { notif in
+                if notif.actor == nil, let profile = profileMap[notif.actorId] {
+                    return notif.withActor(profile)
+                }
+                return notif
+            }
+            print("✅ Enriched notifications with \(profiles.count) profiles")
+        } catch {
+            print("⚠️ Failed to fetch actor profiles: \(error)")
+        }
     }
     
     func markAllRead() async {

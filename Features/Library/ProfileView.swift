@@ -191,15 +191,34 @@ struct ProfileView: View {
             // Main stats row
             HStack(spacing: 12) {
                 StatCard(value: "\(statTotalSeen)", label: "Ranked", icon: "star.fill", color: .yellow)
-                StatCard(value: "\(statWatchlist)", label: "Watchlist", icon: "bookmark.fill", color: .blue)
-                StatCard(value: "\(myLogs.count)", label: "Logs", icon: "pencil.circle.fill", color: .orange)
+
+                NavigationLink(destination: YourListView(initialTab: 1)) {
+                    StatCard(value: "\(statWatchlist)", label: "Watchlist", icon: "bookmark.fill", color: .blue)
+                }
+                .buttonStyle(.plain)
+
+                NavigationLink(destination: WatchHistoryView()) {
+                    StatCard(value: "\(myLogs.count)", label: "Logs", icon: "pencil.circle.fill", color: .orange)
+                }
+                .buttonStyle(.plain)
             }
 
             // Social stats row
             HStack(spacing: 12) {
-                StatCard(value: "\(followerCount)", label: "Followers", icon: "person.2.fill", color: .purple)
-                StatCard(value: "\(followingCount)", label: "Following", icon: "heart.fill", color: .pink)
-                StatCard(value: formatPoints(activityPoints), label: "Points", icon: "flame.fill", color: .red)
+                NavigationLink(destination: FollowListView(userId: userId, mode: .followers)) {
+                    StatCard(value: "\(followerCount)", label: "Followers", icon: "person.2.fill", color: .purple)
+                }
+                .buttonStyle(.plain)
+
+                NavigationLink(destination: FollowListView(userId: userId, mode: .following)) {
+                    StatCard(value: "\(followingCount)", label: "Following", icon: "heart.fill", color: .pink)
+                }
+                .buttonStyle(.plain)
+
+                NavigationLink(destination: LeaderboardView()) {
+                    StatCard(value: formatPoints(activityPoints), label: "Points", icon: "flame.fill", color: .red)
+                }
+                .buttonStyle(.plain)
             }
         }.padding(.horizontal)
     }

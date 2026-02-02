@@ -48,4 +48,33 @@ struct AppNotification: Decodable, Identifiable {
             userId = try container.decode(UUID.self, forKey: .recipientId)
         }
     }
+
+    // Private init for creating copies with enriched data
+    private init(id: UUID, userId: UUID, actorId: UUID, type: String, message: String,
+                 relatedId: UUID?, read: Bool, createdAtString: String, actor: SocialProfile?) {
+        self.id = id
+        self.userId = userId
+        self.actorId = actorId
+        self.type = type
+        self.message = message
+        self.relatedId = relatedId
+        self.read = read
+        self.createdAtString = createdAtString
+        self.actor = actor
+    }
+
+    /// Create a copy of this notification with the given actor profile
+    func withActor(_ profile: SocialProfile) -> AppNotification {
+        AppNotification(
+            id: id,
+            userId: userId,
+            actorId: actorId,
+            type: type,
+            message: message,
+            relatedId: relatedId,
+            read: read,
+            createdAtString: createdAtString,
+            actor: profile
+        )
+    }
 }

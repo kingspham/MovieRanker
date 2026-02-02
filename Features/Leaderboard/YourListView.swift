@@ -8,15 +8,29 @@ struct YourListView: View {
     @Environment(\.modelContext) private var context
     @Query(sort: \UserItem.createdAt, order: .reverse) private var allUserItems: [UserItem]
     @State private var userId: String = "guest"
-    
+
+    // Optional initial tab (0 = history, 1 = saved, 2 = lists)
+    var initialTab: Int = 0
+
     // Tab selection
     enum LibraryTab: String, CaseIterable {
         case history = "History"
         case saved = "Saved"
         case lists = "Lists"
     }
-    
+
     @State private var selectedTab: LibraryTab = .history
+
+    init(initialTab: Int = 0) {
+        self.initialTab = initialTab
+        // Set initial selection based on parameter
+        let tab: LibraryTab = switch initialTab {
+            case 1: .saved
+            case 2: .lists
+            default: .history
+        }
+        _selectedTab = State(initialValue: tab)
+    }
     
     var body: some View {
         NavigationStack {

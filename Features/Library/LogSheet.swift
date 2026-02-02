@@ -56,10 +56,7 @@ struct LogSheet: View {
                 // DATE SECTION (Layout Fix)
                 Section("When") {
                     HStack {
-                        if let lockedDate = existingLog?.watchedOn {
-                            Text("\(isBook ? "Read" : "Watched") \(lockedDate.formatted(date: .abbreviated, time: .omitted))")
-                                .foregroundStyle(.secondary)
-                        } else if unknownDate {
+                        if unknownDate {
                             Text("Date Unknown")
                                 .foregroundStyle(.secondary)
                                 .italic()
@@ -71,22 +68,20 @@ struct LogSheet: View {
                                 Text(isBook ? "Date Read" : "Date Watched")
                             }
                         }
-                        
+
                         Spacer()
-                        
-                        if existingLog?.watchedOn == nil {
-                            Button {
-                                withAnimation { unknownDate.toggle() }
-                            } label: {
-                                Text(unknownDate ? "Set Date" : "Don't Remember")
-                                    .font(.caption).bold()
-                                    .padding(6)
-                                    .background(unknownDate ? Color.blue.opacity(0.1) : Color.red.opacity(0.1))
-                                    .foregroundColor(unknownDate ? .blue : .red)
-                                    .cornerRadius(6)
-                            }
-                            .buttonStyle(.plain) // Prevents clicking the whole row
+
+                        Button {
+                            withAnimation { unknownDate.toggle() }
+                        } label: {
+                            Text(unknownDate ? "Set Date" : "Don't Remember")
+                                .font(.caption).bold()
+                                .padding(6)
+                                .background(unknownDate ? Color.blue.opacity(0.1) : Color.red.opacity(0.1))
+                                .foregroundColor(unknownDate ? .blue : .red)
+                                .cornerRadius(6)
                         }
+                        .buttonStyle(.plain) // Prevents clicking the whole row
                     }
                     
                     if isBook {
@@ -196,12 +191,8 @@ struct LogSheet: View {
     }
     
     private func saveLog() {
-        let finalWatchedOn: Date? = {
-            if let existingDate = existingLog?.watchedOn {
-                return existingDate
-            }
-            return unknownDate ? nil : watchedOn
-        }()
+        // Use the current watchedOn state (allows editing dates)
+        let finalWatchedOn: Date? = unknownDate ? nil : watchedOn
         
         // Map platform string to WatchLocation
         let watchLocation: WatchLocation? = {
