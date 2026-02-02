@@ -144,7 +144,7 @@ struct ActivityLeaderboardView: View {
 
         // For following users, we'd need their activity data from the server
         // For now, just show them with estimated points
-        for (index, profile) in following.enumerated() {
+        for profile in following {
             entries.append(LeaderboardEntry(
                 id: profile.id,
                 profile: profile,
@@ -204,7 +204,7 @@ struct ActivityLeaderboardRow: View {
                 .overlay(
                     Text(String(entry.profile.displayName.prefix(1)).uppercased())
                         .font(.headline)
-                        .foregroundStyle(isCurrentUser ? .accentColor : .gray)
+                        .foregroundStyle(isCurrentUser ? Color.accentColor : Color.gray)
                 )
 
             VStack(alignment: .leading, spacing: 2) {
