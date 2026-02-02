@@ -26,6 +26,7 @@ struct LeaderboardView: View {
     @State private var shareItem: Any?
     
     @State private var isHealing = false
+    @State private var hasHealed = false
 
     // ENUMS
     enum MediaTypeFilter: String, CaseIterable, Identifiable {
@@ -142,6 +143,8 @@ struct LeaderboardView: View {
             .task {
                 let actor = AuthService.shared.sessionActor()
                 userId = (try? await actor.session().userId) ?? "guest"
+                guard !hasHealed else { return }
+                hasHealed = true
                 await healMissingRatings()
             }
         }
@@ -174,15 +177,20 @@ struct LeaderboardView: View {
     // MARK: - Helpers & Logic
     private func healMissingRatings() async {
         let missing = movies.filter { ($0.mediaType == "movie" || $0.mediaType == "tv") && ($0.imdbRating == nil || $0.metaScore == nil) }
-        guard !missing.isEmpty else { return }; isHealing = true
+        guard !missing.isEmpty else { return }
+        isHealing = true
         let service = ShowDetailsService()
         for movie in missing.prefix(10) {
+            guard !Task.isCancelled else { break }
             if let details = try? await service.lookupByTitle(movie.title, year: movie.year) {
-                movie.imdbRating = details.imdbRating; movie.metaScore = details.metascore; movie.rottenTomatoesRating = details.rottenTomatoes
+                movie.imdbRating = details.imdbRating
+                movie.metaScore = details.metascore
+                movie.rottenTomatoesRating = details.rottenTomatoes
             }
             try? await Task.sleep(nanoseconds: 200_000_000)
         }
-        try? context.save(); isHealing = false
+        try? context.save()
+        isHealing = false
     }
     private func RowContent(row: Row) -> some View {
         HStack(spacing: 12) {

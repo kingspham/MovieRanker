@@ -23,6 +23,7 @@ struct SearchView: View {
 
     @State private var isLoading = false
     @State private var hasSearched = false
+    @State private var hasLoadedDiscovery = false
     @State private var errorText: String? = nil
     @State private var didYouMeanSuggestion: String? = nil
     @State private var fuzzySuggestions: [String] = []
@@ -433,8 +434,14 @@ struct SearchView: View {
     }
 
     private func loadDiscovery() async {
+        // Prevent duplicate loading
+        guard !hasLoadedDiscovery else { return }
+        hasLoadedDiscovery = true
+
         do {
             let client = try TMDbClient()
+            guard !Task.isCancelled else { return }
+
             async let trendTask = client.getTrending()
             async let theaterTask = client.getNowPlaying()
             async let streamTask = client.getStreaming()
@@ -827,6 +834,7 @@ struct SuggestedForYouView: View {
 
     @State private var suggestions: [TMDbItem] = []
     @State private var isLoading = true
+    @State private var hasLoaded = false
     @State private var topGenreNames: [String] = []
 
     private let genreIdToName: [Int: String] = [
@@ -881,7 +889,11 @@ struct SuggestedForYouView: View {
             }
         }
         .navigationTitle("Suggested For You")
-        .task { await loadSuggestionsForYou() }
+        .task {
+            guard !hasLoaded else { return }
+            hasLoaded = true
+            await loadSuggestionsForYou()
+        }
     }
 
     private func loadSuggestionsForYou() async {
