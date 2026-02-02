@@ -215,7 +215,7 @@ struct ProfileView: View {
                 }
                 .buttonStyle(.plain)
 
-                NavigationLink(destination: LeaderboardView()) {
+                NavigationLink(destination: ActivityLeaderboardView()) {
                     StatCard(value: formatPoints(activityPoints), label: "Points", icon: "flame.fill", color: .red)
                 }
                 .buttonStyle(.plain)
