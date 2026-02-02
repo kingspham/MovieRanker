@@ -215,6 +215,15 @@ final class LinearPredictionEngine: PredictionEngine {
         // METHOD 13: Strong negative signal check (override if user consistently dislikes similar content)
         _ = checkNegativeSignals(for: movie, attributeScores: attributeScores)
 
+        // METHOD 14: Direct similarity to highly-rated movies (VERY STRONG - user's actual preferences)
+        let similarityBoost = calculateDirectSimilarity(
+            movie: movie,
+            userScoresWithMovies: allUserScoresWithMovies.map { ($0.0, $0.1) }
+        )
+        if let sb = similarityBoost {
+            predictions.append((sb.score, sb.weight * 6.0, sb.reason)) // Highest weight - actual user data
+        }
+
         // Combine predictions with emphasis on STRONGEST signals
         var finalScore: Double
         var topReasons: [String] = []
@@ -1128,5 +1137,99 @@ final class LinearPredictionEngine: PredictionEngine {
         case 37: return "Western"
         default: return "Genre"
         }
+    }
+
+    /// Calculate direct similarity to user's highly-rated movies
+    /// This is the STRONGEST signal - actual user preferences from their rankings
+    private func calculateDirectSimilarity(movie: Movie, userScoresWithMovies: [(Score, Movie)]) -> (score: Double, weight: Double, reason: String)? {
+        // Only consider highly-rated movies (70+ score = user really liked them)
+        let highlyRated = userScoresWithMovies.filter { $0.0.display100 >= 70 }
+        guard !highlyRated.isEmpty else { return nil }
+
+        var similarities: [(score: Double, similarity: Double, title: String)] = []
+
+        for (score, ratedMovie) in highlyRated {
+            guard ratedMovie.mediaType == movie.mediaType else { continue }
+
+            var matchPoints = 0.0
+            var totalPossible = 0.0
+
+            // Genre matching (strong signal)
+            let movieGenres = Set(movie.genreIDs)
+            let ratedGenres = Set(ratedMovie.genreIDs)
+            if !movieGenres.isEmpty && !ratedGenres.isEmpty {
+                let sharedGenres = movieGenres.intersection(ratedGenres)
+                let genreScore = Double(sharedGenres.count) / Double(max(movieGenres.count, ratedGenres.count))
+                matchPoints += genreScore * 3.0 // Weight genres heavily
+                totalPossible += 3.0
+            }
+
+            // Same director (very strong signal)
+            if let movieTags = movie.tags, let ratedTags = ratedMovie.tags {
+                let movieDirs = movieTags.filter { $0.starts(with: "dir:") }
+                let ratedDirs = ratedTags.filter { $0.starts(with: "dir:") }
+                if !movieDirs.isEmpty && !ratedDirs.isEmpty {
+                    let sharedDirs = Set(movieDirs).intersection(Set(ratedDirs))
+                    if !sharedDirs.isEmpty {
+                        matchPoints += 2.0 // Same director = strong match
+                    }
+                    totalPossible += 2.0
+                }
+
+                // Shared actors
+                let movieActors = movieTags.filter { $0.starts(with: "actor:") }
+                let ratedActors = ratedTags.filter { $0.starts(with: "actor:") }
+                if !movieActors.isEmpty && !ratedActors.isEmpty {
+                    let sharedActors = Set(movieActors).intersection(Set(ratedActors))
+                    let actorScore = min(Double(sharedActors.count) / 2.0, 1.0)
+                    matchPoints += actorScore * 1.5
+                    totalPossible += 1.5
+                }
+            }
+
+            // Same decade (mild signal)
+            if let movieYear = movie.year, let ratedYear = ratedMovie.year {
+                let movieDecade = movieYear / 10 * 10
+                let ratedDecade = ratedYear / 10 * 10
+                if movieDecade == ratedDecade {
+                    matchPoints += 0.5
+                }
+                totalPossible += 0.5
+            }
+
+            // Same language/origin
+            if let movieLang = movie.originalLanguage, let ratedLang = ratedMovie.originalLanguage,
+               movieLang == ratedLang {
+                matchPoints += 0.5
+            }
+            totalPossible += 0.5
+
+            // Calculate similarity (0-1)
+            let similarity = totalPossible > 0 ? matchPoints / totalPossible : 0
+            if similarity > 0.3 { // Only consider meaningful similarities
+                let userRating = Double(score.display100) / 10.0
+                similarities.append((userRating, similarity, ratedMovie.title))
+            }
+        }
+
+        guard !similarities.isEmpty else { return nil }
+
+        // Sort by similarity (most similar first)
+        let sorted = similarities.sorted { $0.similarity > $1.similarity }
+
+        // Weight prediction by similarity strength
+        var totalWeight = 0.0
+        var weightedSum = 0.0
+        for (score, similarity, _) in sorted.prefix(5) { // Top 5 most similar
+            let weight = similarity * similarity // Square similarity for extra emphasis on close matches
+            weightedSum += score * weight
+            totalWeight += weight
+        }
+
+        let predictedScore = totalWeight > 0 ? weightedSum / totalWeight : 6.0
+        let confidence = min(Double(sorted.count) / 3.0, 1.0) * (sorted.first?.similarity ?? 0)
+        let topMatch = sorted.first?.title ?? "similar content"
+
+        return (predictedScore, confidence, "Similar to \(topMatch)")
     }
 }

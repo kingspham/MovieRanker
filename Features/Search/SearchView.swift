@@ -524,8 +524,18 @@ struct SearchView: View {
             async let movieTask = client.discoverByGenres(genreIds: Array(topGenres))
             async let tvTask = client.discoverTVByGenres(genreIds: Array(topGenres))
             let (movieResponse, tvResponse) = try await (movieTask, tvTask)
-            let movieSuggestions = movieResponse.results.filter { !seenTmdbIds.contains($0.id) }
-            let tvSuggestions = tvResponse.results.filter { !seenTmdbIds.contains($0.id) }
+
+            // Filter out already-seen content and deduplicate by ID
+            var seenMovieIds = Set<Int>()
+            let movieSuggestions = movieResponse.results
+                .filter { !seenTmdbIds.contains($0.id) }
+                .filter { seenMovieIds.insert($0.id).inserted }
+
+            var seenShowIds = Set<Int>()
+            let tvSuggestions = tvResponse.results
+                .filter { !seenTmdbIds.contains($0.id) }
+                .filter { seenShowIds.insert($0.id).inserted }
+
             self.suggestedMovies = Array(movieSuggestions.prefix(10))
             self.suggestedShows = Array(tvSuggestions.prefix(10))
             print("🎬 Suggestions: Loaded \(suggestedMovies.count) movies, \(suggestedShows.count) shows")
