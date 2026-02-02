@@ -11,6 +11,7 @@ struct SettingsToolsView: View {
     @StateObject private var importService = ImportService.shared
 
     @State private var showingFilePicker = false
+    @State private var showingImportOptions = false
     @State private var showAlert = false
     @State private var alertMessage = ""
     @State private var userId = "guest"
@@ -68,13 +69,13 @@ struct SettingsToolsView: View {
                 // IMPORT
                 Section {
                     Button {
-                        showingFilePicker = true
+                        showingImportOptions = true
                     } label: {
                         HStack {
                             Image(systemName: "square.and.arrow.down")
                             VStack(alignment: .leading) {
                                 Text("Import Watch History")
-                                Text("Netflix or Letterboxd CSV")
+                                Text("Netflix or Letterboxd")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
@@ -93,7 +94,7 @@ struct SettingsToolsView: View {
                 } header: {
                     Text("Import Data")
                 } footer: {
-                    Text("Import your viewing history from Netflix (ViewingActivity.csv) or Letterboxd (diary.csv)")
+                    Text("Import your viewing history from streaming services")
                 }
 
                 // QUICK ACTIONS
@@ -151,6 +152,16 @@ struct SettingsToolsView: View {
                 allowsMultipleSelection: false
             ) { result in
                 handleFileImport(result: result)
+            }
+            .sheet(isPresented: $showingImportOptions) {
+                ImportOptionsSheet(
+                    onSelectFile: {
+                        showingImportOptions = false
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                            showingFilePicker = true
+                        }
+                    }
+                )
             }
             .alert("Import Complete", isPresented: $showAlert) {
                 Button("OK") { }
@@ -233,6 +244,121 @@ struct SettingsToolsView: View {
         await MainActor.run {
             alertMessage = "Fixed \(fixedCount) movies! Documentaries (genre 99) will now be properly classified."
             showAlert = true
+        }
+    }
+}
+
+// MARK: - Import Options Sheet
+struct ImportOptionsSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.openURL) private var openURL
+
+    let onSelectFile: () -> Void
+
+    var body: some View {
+        NavigationStack {
+            List {
+                // Netflix Section
+                Section {
+                    Button {
+                        if let url = URL(string: "https://www.netflix.com/account/getmyinfo") {
+                            openURL(url)
+                        }
+                    } label: {
+                        HStack {
+                            Image(systemName: "play.rectangle.fill")
+                                .foregroundStyle(.red)
+                                .font(.title2)
+                                .frame(width: 32)
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("Netflix")
+                                    .font(.headline)
+                                Text("Open Netflix data request page")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Image(systemName: "arrow.up.right")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                } header: {
+                    Text("Netflix")
+                } footer: {
+                    Text("Request your data from Netflix, then download ViewingActivity.csv from the email they send you.")
+                }
+
+                // Letterboxd Section
+                Section {
+                    Button {
+                        if let url = URL(string: "https://letterboxd.com/settings/data/") {
+                            openURL(url)
+                        }
+                    } label: {
+                        HStack {
+                            Image(systemName: "film.stack")
+                                .foregroundStyle(.green)
+                                .font(.title2)
+                                .frame(width: 32)
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("Letterboxd")
+                                    .font(.headline)
+                                Text("Open Letterboxd export page")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Image(systemName: "arrow.up.right")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                } header: {
+                    Text("Letterboxd")
+                } footer: {
+                    Text("Export your data from Letterboxd and use the diary.csv file.")
+                }
+
+                // Select File Section
+                Section {
+                    Button {
+                        dismiss()
+                        onSelectFile()
+                    } label: {
+                        HStack {
+                            Image(systemName: "doc.fill")
+                                .foregroundStyle(.blue)
+                                .font(.title2)
+                                .frame(width: 32)
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("I Already Have a File")
+                                    .font(.headline)
+                                Text("Select a CSV file from your device")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                } header: {
+                    Text("Import File")
+                } footer: {
+                    Text("If you've already downloaded your viewing history, tap here to select the file.")
+                }
+            }
+            .navigationTitle("Import History")
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+            }
         }
     }
 }
