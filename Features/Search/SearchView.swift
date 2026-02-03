@@ -199,108 +199,8 @@ struct SearchView: View {
                     }
                 }
                 // MARK: - DISCOVERY
-                else {
-                    // Suggested Movies (high predicted score movies)
-                    if !suggestedMovies.isEmpty {
-                        Section(header: HStack {
-                            Text("🎬 Suggested Movies")
-                            Spacer()
-                            NavigationLink("See All") {
-                                SuggestedMediaView(userId: userId, mediaType: "movie")
-                            }
-                            .font(.caption)
-                        }) {
-                            ScrollView(.horizontal, showsIndicators: false) {
-                                HStack(spacing: 16) {
-                                    ForEach(suggestedMovies, id: \.id) { m in DiscoveryCard(item: m) }
-                                }.padding(.vertical, 8)
-                            }.listRowInsets(EdgeInsets())
-                        }
-                    }
-
-                    // Suggested Shows (high predicted score TV shows)
-                    if !suggestedShows.isEmpty {
-                        Section(header: HStack {
-                            Text("📺 Suggested Shows")
-                            Spacer()
-                            NavigationLink("See All") {
-                                SuggestedMediaView(userId: userId, mediaType: "tv")
-                            }
-                            .font(.caption)
-                        }) {
-                            ScrollView(.horizontal, showsIndicators: false) {
-                                HStack(spacing: 16) {
-                                    ForEach(suggestedShows, id: \.id) { m in DiscoveryCard(item: m) }
-                                }.padding(.vertical, 8)
-                            }.listRowInsets(EdgeInsets())
-                        }
-                    }
-
-                    if !trending.isEmpty {
-                        Section(header: Text("🔥 Trending Today")) {
-                            ScrollView(.horizontal, showsIndicators: false) {
-                                HStack(spacing: 16) {
-                                    ForEach(trending, id: \.id) { m in DiscoveryCard(item: m) }
-                                }.padding(.vertical, 8)
-                            }.listRowInsets(EdgeInsets())
-                        }
-                    }
-
-                    if !inTheaters.isEmpty {
-                        Section(header: HStack {
-                            Text("🍿 In Theaters")
-                            Spacer()
-                            NavigationLink("See All") {
-                                InTheatersView()
-                            }
-                            .font(.caption)
-                        }) {
-                            ScrollView(.horizontal, showsIndicators: false) {
-                                HStack(spacing: 16) {
-                                    ForEach(inTheaters, id: \.id) { m in DiscoveryCard(item: m) }
-                                }.padding(.vertical, 8)
-                            }.listRowInsets(EdgeInsets())
-                        }
-                    }
-
-                    if !streaming.isEmpty {
-                        Section(header: HStack {
-                            Text("📺 Streaming Now")
-                            Spacer()
-                            NavigationLink("See All") {
-                                StreamingNowView()
-                            }
-                            .font(.caption)
-                        }) {
-                            ScrollView(.horizontal, showsIndicators: false) {
-                                HStack(spacing: 16) {
-                                    ForEach(streaming, id: \.id) { m in DiscoveryCard(item: m) }
-                                }.padding(.vertical, 8)
-                            }.listRowInsets(EdgeInsets())
-                        }
-                    }
-
-                    // Suggested Books
-                    if !suggestedBooks.isEmpty {
-                        Section(header: Text("📚 Popular Books")) {
-                            ScrollView(.horizontal, showsIndicators: false) {
-                                HStack(spacing: 16) {
-                                    ForEach(suggestedBooks, id: \.id) { book in DiscoveryCard(item: book) }
-                                }.padding(.vertical, 8)
-                            }.listRowInsets(EdgeInsets())
-                        }
-                    }
-
-                    // Suggested Podcasts
-                    if !suggestedPodcasts.isEmpty {
-                        Section(header: Text("🎙️ Top Podcasts")) {
-                            ScrollView(.horizontal, showsIndicators: false) {
-                                HStack(spacing: 16) {
-                                    ForEach(suggestedPodcasts, id: \.id) { podcast in DiscoveryCard(item: podcast) }
-                                }.padding(.vertical, 8)
-                            }.listRowInsets(EdgeInsets())
-                        }
-                    }
+                if !hasSearched || query.isEmpty {
+                    discoverySections
                 }
             }
             #if os(iOS)
@@ -358,10 +258,14 @@ struct SearchView: View {
                 $0.mediaType == "movie" || $0.mediaType == "tv" || $0.mediaType == "person"
             }
 
-            // Debug: Log person results found
+            // Debug: Log person results found with profile paths
             let personResults = visualResults.filter { $0.mediaType == "person" }
             if !personResults.isEmpty {
-                print("🔍 Search found \(personResults.count) person(s): \(personResults.map { "\($0.displayTitle) (pop: \($0.popularity ?? 0), profile: \($0.profilePath ?? "nil"))" }.joined(separator: ", "))")
+                for person in personResults {
+                    let profileInfo = person.profilePath ?? "NO_PROFILE_PATH"
+                    let fullURL = person.profilePath.map { "https://image.tmdb.org/t/p/w185\($0)" } ?? "NO_URL"
+                    print("🔍 Person: \(person.displayTitle) | profilePath: \(profileInfo) | URL: \(fullURL) | pop: \(person.popularity ?? 0)")
+                }
             }
 
             // Reorder results: prioritize persons when query looks like a name
@@ -393,53 +297,42 @@ struct SearchView: View {
     }
 
     private func reorderSearchResults(_ results: [TMDbItem], query: String) -> [TMDbItem] {
-        let queryLower = query.lowercased()
+        let queryLower = query.lowercased().trimmingCharacters(in: .whitespaces)
 
-        // Title keywords that suggest user is searching for a movie/show
-        let titleKeywords = ["the ", "movie", "show", "series", "season", "part", "episode", "vol", "2", "3", "ii", "iii", "movie:", "film"]
+        // Title keywords that suggest user is searching for a movie/show, not a person
+        let titleKeywords = ["the ", "movie", "show", "series", "season", "part", "episode", "vol", "movie:", "film"]
         let looksLikeTitle = titleKeywords.contains { queryLower.contains($0) }
 
-        // If it explicitly looks like a title search, return as-is
-        if looksLikeTitle { return results }
+        // If it explicitly looks like a title search, return sorted by popularity
+        if looksLikeTitle {
+            return results.sorted { ($0.popularity ?? 0) > ($1.popularity ?? 0) }
+        }
 
-        let words = query.split(separator: " ")
+        let words = queryLower.split(separator: " ")
 
-        // Check if query looks like a person's name (1-4 words, no numbers)
-        let looksLikeName = words.count >= 1 && words.count <= 4 && !query.contains(where: { $0.isNumber })
+        // Check if query looks like a person's name (1-4 words, all letters/spaces)
+        let looksLikeName = words.count >= 1 && words.count <= 4 && queryLower.allSatisfy({ $0.isLetter || $0.isWhitespace || $0 == "-" || $0 == "'" })
 
-        // Famous actor/director first names that strongly suggest person search
-        let famousFirstNames = Set(["jack", "tom", "brad", "leonardo", "george", "will", "morgan", "samuel",
-                                 "robert", "johnny", "harrison", "denzel", "ryan", "chris", "emma", "jennifer",
-                                 "scarlett", "natalie", "meryl", "julia", "sandra", "margot", "timothee",
-                                 "zendaya", "dwayne", "keanu", "nicolas", "adam", "ben", "matt", "mark",
-                                 "florence", "saoirse", "cate", "anne", "kate", "olivia", "viola", "lupita",
-                                 "michael", "james", "jake", "daniel", "henry", "oscar", "pedro", "jason",
-                                 "idris", "chadwick", "anthony", "eddie", "rami", "joaquin", "jared", "seth",
-                                 "paul", "steve", "jim", "john", "sean", "liam", "hugh", "colin", "ewan"])
+        // Separate persons from non-persons
+        let persons = results.filter { $0.mediaType == "person" }
+        let others = results.filter { $0.mediaType != "person" }
 
-        let firstWord = words.first?.lowercased() ?? ""
-        let isLikelyActor = famousFirstNames.contains(firstWord)
-
-        // Prioritize persons if query looks like a name
-        if looksLikeName || isLikelyActor {
-            let persons = results.filter { $0.mediaType == "person" }
-
-            // Find persons whose name matches the query
-            let matchingPersons = persons.filter { person in
-                let personName = person.displayTitle.lowercased()
-                return personName.hasPrefix(queryLower) || personName.contains(queryLower)
+        // If we have person results and query looks like a name, always put persons first
+        if !persons.isEmpty && looksLikeName {
+            // Sort persons: exact/prefix matches first, then by popularity
+            let sortedPersons = persons.sorted { a, b in
+                let aName = a.displayTitle.lowercased()
+                let bName = b.displayTitle.lowercased()
+                let aExact = aName == queryLower || aName.hasPrefix(queryLower)
+                let bExact = bName == queryLower || bName.hasPrefix(queryLower)
+                if aExact && !bExact { return true }
+                if !aExact && bExact { return false }
+                return (a.popularity ?? 0) > (b.popularity ?? 0)
             }
 
-            // Use matching persons first, otherwise all persons sorted by popularity
-            let sortedPersons = (matchingPersons.isEmpty ? persons : matchingPersons)
-                .sorted { ($0.popularity ?? 0) > ($1.popularity ?? 0) }
-
-            // Always put persons first if we have any (removes the popularity threshold)
-            if !sortedPersons.isEmpty {
-                let others = results.filter { $0.mediaType != "person" }
-                    .sorted { ($0.popularity ?? 0) > ($1.popularity ?? 0) }
-                return sortedPersons + others
-            }
+            let sortedOthers = others.sorted { ($0.popularity ?? 0) > ($1.popularity ?? 0) }
+            print("🔍 Reorder: putting \(sortedPersons.count) person(s) first for query '\(query)'")
+            return sortedPersons + sortedOthers
         }
 
         // Default: sort by popularity across all types
@@ -576,47 +469,49 @@ struct SearchView: View {
     struct PersonProfileImage: View {
         let profilePath: String?
 
-        private var imageURL: URL? {
-            guard let path = profilePath, !path.isEmpty else { return nil }
-            // Ensure path starts with "/" for TMDb API
-            let normalizedPath = path.hasPrefix("/") ? path : "/\(path)"
+        private func makeURL(from path: String?) -> URL? {
+            guard let p = path, !p.isEmpty else { return nil }
+            if p.hasPrefix("http://") || p.hasPrefix("https://") {
+                return URL(string: p)
+            }
+            // TMDb profile paths start with "/" - ensure correct format
+            let normalizedPath = p.hasPrefix("/") ? p : "/\(p)"
             return URL(string: "https://image.tmdb.org/t/p/w185\(normalizedPath)")
         }
 
         var body: some View {
-            if let url = imageURL {
-                AsyncImage(url: url, transaction: Transaction(animation: .easeIn)) { phase in
-                    switch phase {
-                    case .empty:
-                        placeholderCircle
-                            .overlay(ProgressView().scaleEffect(0.6))
-                    case .success(let image):
-                        image
-                            .resizable()
-                            .scaledToFill()
-                            .frame(width: 48, height: 48)
-                            .clipShape(Circle())
-                    case .failure:
-                        placeholderCircle
-                    @unknown default:
-                        placeholderCircle
+            ZStack {
+                if let url = makeURL(from: profilePath) {
+                    AsyncImage(url: url) { phase in
+                        switch phase {
+                        case .empty:
+                            placeholderCircle
+                        case .success(let image):
+                            image
+                                .resizable()
+                                .scaledToFill()
+                        case .failure:
+                            placeholderCircle
+                        @unknown default:
+                            placeholderCircle
+                        }
                     }
+                } else {
+                    placeholderCircle
                 }
-                .frame(width: 48, height: 48)
-            } else {
-                placeholderCircle
             }
+            .frame(width: 48, height: 48)
+            .clipShape(Circle())
         }
 
         private var placeholderCircle: some View {
-            Circle()
-                .fill(Color.gray.opacity(0.3))
-                .frame(width: 48, height: 48)
-                .overlay(
-                    Image(systemName: "person.fill")
-                        .font(.title3)
-                        .foregroundStyle(.secondary)
-                )
+            ZStack {
+                Circle()
+                    .fill(Color.gray.opacity(0.3))
+                Image(systemName: "person.fill")
+                    .font(.title3)
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 
@@ -635,6 +530,166 @@ struct SearchView: View {
         else if item.mediaType == "podcast" { PodcastInfoView(item: item).modelContext(context) }
         else if item.mediaType == "person" { PersonDetailView(personId: item.id, personName: item.displayTitle) }
         else { MovieInfoView(tmdb: item, mediaType: item.mediaType ?? "movie").modelContext(context) }
+    }
+
+    // MARK: - Discovery Sections (single definition to prevent duplicates)
+    @ViewBuilder
+    private var discoverySections: some View {
+        // Suggested Movies
+        if !suggestedMovies.isEmpty {
+            Section {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 12) {
+                        ForEach(suggestedMovies, id: \.id) { item in
+                            DiscoveryCard(item: item)
+                        }
+                    }
+                    .padding(.horizontal, 4)
+                }
+            } header: {
+                NavigationLink {
+                    SuggestedMediaView(userId: userId, mediaType: "movie")
+                        .modelContext(context)
+                } label: {
+                    HStack {
+                        Text("Suggested Movies")
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+        }
+
+        // Suggested Shows
+        if !suggestedShows.isEmpty {
+            Section {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 12) {
+                        ForEach(suggestedShows, id: \.id) { item in
+                            DiscoveryCard(item: item)
+                        }
+                    }
+                    .padding(.horizontal, 4)
+                }
+            } header: {
+                NavigationLink {
+                    SuggestedMediaView(userId: userId, mediaType: "tv")
+                        .modelContext(context)
+                } label: {
+                    HStack {
+                        Text("Suggested Shows")
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+        }
+
+        // Trending Today
+        if !trending.isEmpty {
+            Section {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 12) {
+                        ForEach(trending, id: \.id) { item in
+                            DiscoveryCard(item: item)
+                        }
+                    }
+                    .padding(.horizontal, 4)
+                }
+            } header: {
+                Text("Trending Today")
+            }
+        }
+
+        // In Theaters
+        if !inTheaters.isEmpty {
+            Section {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 12) {
+                        ForEach(inTheaters, id: \.id) { item in
+                            DiscoveryCard(item: item)
+                        }
+                    }
+                    .padding(.horizontal, 4)
+                }
+            } header: {
+                NavigationLink {
+                    InTheatersView()
+                        .modelContext(context)
+                } label: {
+                    HStack {
+                        Text("In Theaters")
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+        }
+
+        // Streaming Now
+        if !streaming.isEmpty {
+            Section {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 12) {
+                        ForEach(streaming, id: \.id) { item in
+                            DiscoveryCard(item: item)
+                        }
+                    }
+                    .padding(.horizontal, 4)
+                }
+            } header: {
+                NavigationLink {
+                    StreamingNowView()
+                        .modelContext(context)
+                } label: {
+                    HStack {
+                        Text("Streaming Now")
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+        }
+
+        // Popular Books
+        if !suggestedBooks.isEmpty {
+            Section {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 12) {
+                        ForEach(suggestedBooks, id: \.id) { item in
+                            DiscoveryCard(item: item)
+                        }
+                    }
+                    .padding(.horizontal, 4)
+                }
+            } header: {
+                Text("Popular Books")
+            }
+        }
+
+        // Top Podcasts
+        if !suggestedPodcasts.isEmpty {
+            Section {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 12) {
+                        ForEach(suggestedPodcasts, id: \.id) { item in
+                            DiscoveryCard(item: item)
+                        }
+                    }
+                    .padding(.horizontal, 4)
+                }
+            } header: {
+                Text("Top Podcasts")
+            }
+        }
     }
 
     func Badge(type: String) -> some View {

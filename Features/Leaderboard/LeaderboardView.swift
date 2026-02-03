@@ -198,14 +198,43 @@ struct LeaderboardView: View {
             PosterThumb(posterPath: row.posterPath, title: row.title, width: 48)
             VStack(alignment: .leading, spacing: 2) {
                 Text(row.title).font(.headline)
-                if sortOrder == .metacritic, let meta = row.metaScore, meta != "N/A" { Text("Metascore: \(meta)").font(.caption).foregroundStyle(.green).bold() }
-                else if sortOrder == .imdb, let imdb = row.imdbRating, imdb != "N/A" { Text("IMDb: \(imdb)").font(.caption).foregroundStyle(.yellow).bold() }
-                else if sortOrder == .rottenTomatoes, let rt = row.rtRating { Text("RT: \(rt)").font(.caption).foregroundStyle(.red).bold() }
-                else if let sub = row.subtitle { Text(sub).foregroundStyle(.secondary).font(.caption) }
+                HStack(spacing: 6) {
+                    // Show media type badge in "All" view
+                    if filter == .all {
+                        Text(mediaTypeLabel(row.mediaType))
+                            .font(.caption2).fontWeight(.bold)
+                            .padding(.horizontal, 5).padding(.vertical, 1)
+                            .background(mediaTypeColor(row.mediaType).opacity(0.15))
+                            .foregroundColor(mediaTypeColor(row.mediaType))
+                            .cornerRadius(4)
+                    }
+                    if sortOrder == .metacritic, let meta = row.metaScore, meta != "N/A" { Text("Metascore: \(meta)").font(.caption).foregroundStyle(.green).bold() }
+                    else if sortOrder == .imdb, let imdb = row.imdbRating, imdb != "N/A" { Text("IMDb: \(imdb)").font(.caption).foregroundStyle(.yellow).bold() }
+                    else if sortOrder == .rottenTomatoes, let rt = row.rtRating { Text("RT: \(rt)").font(.caption).foregroundStyle(.red).bold() }
+                    else if let sub = row.subtitle { Text(sub).foregroundStyle(.secondary).font(.caption) }
+                }
             }
             Spacer()
             Text("\(Int(row.score))").font(.headline).monospacedDigit().foregroundStyle(Color.accentColor)
         }.padding(.vertical, 4)
+    }
+    private func mediaTypeLabel(_ type: String) -> String {
+        switch type {
+        case "movie": return "Movie"
+        case "tv": return "Show"
+        case "book": return "Book"
+        case "podcast": return "Podcast"
+        default: return "Other"
+        }
+    }
+    private func mediaTypeColor(_ type: String) -> Color {
+        switch type {
+        case "movie": return .orange
+        case "tv": return .blue
+        case "book": return .green
+        case "podcast": return .purple
+        default: return .gray
+        }
     }
     private func sortIcon(for option: SortOption) -> String { switch option { case .rank: return "trophy"; case .title: return "textformat"; case .date: return "calendar"; default: return "star.circle" } }
     private func itemFromRow(_ row: Row) -> TMDbItem { return TMDbItem(id: row.tmdbID ?? 0, title: row.title, overview: nil, releaseDate: nil, posterPath: row.posterPath, genreIds: [], mediaType: row.mediaType) }
@@ -243,14 +272,10 @@ struct LeaderboardView: View {
         case .rottenTomatoes: rows.sort { (Int($0.rtRating?.replacingOccurrences(of: "%", with: "") ?? "0") ?? 0) > (Int($1.rtRating?.replacingOccurrences(of: "%", with: "") ?? "0") ?? 0) }
         }
 
-        // Compute ranks per media type (each category has its own 1-100 scale)
-        var rankByType: [String: Int] = [:]
+        // Assign sequential ranks (1, 2, 3...) within the current filtered view
         var finalRows: [Row] = []
-        for row in rows {
-            let typeKey = row.mediaType
-            let currentRank = (rankByType[typeKey] ?? 0) + 1
-            rankByType[typeKey] = currentRank
-            finalRows.append(Row(id: row.id, movieID: row.movieID, rank: currentRank, title: row.title, subtitle: row.subtitle, posterPath: row.posterPath, score: row.score, tmdbID: row.tmdbID, mediaType: row.mediaType, dateAdded: row.dateAdded, genreIDs: row.genreIDs, metaScore: row.metaScore, imdbRating: row.imdbRating, rtRating: row.rtRating, year: row.year))
+        for (index, row) in rows.enumerated() {
+            finalRows.append(Row(id: row.id, movieID: row.movieID, rank: index + 1, title: row.title, subtitle: row.subtitle, posterPath: row.posterPath, score: row.score, tmdbID: row.tmdbID, mediaType: row.mediaType, dateAdded: row.dateAdded, genreIDs: row.genreIDs, metaScore: row.metaScore, imdbRating: row.imdbRating, rtRating: row.rtRating, year: row.year))
         }
         return finalRows
     }
