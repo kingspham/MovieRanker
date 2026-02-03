@@ -1165,7 +1165,9 @@ final class LinearPredictionEngine: PredictionEngine {
             }
 
             // Same director (very strong signal)
-            if let movieTags = movie.tags, let ratedTags = ratedMovie.tags {
+            let movieTags = movie.tags
+            let ratedTags = ratedMovie.tags
+            if !movieTags.isEmpty && !ratedTags.isEmpty {
                 let movieDirs = movieTags.filter { $0.starts(with: "dir:") }
                 let ratedDirs = ratedTags.filter { $0.starts(with: "dir:") }
                 if !movieDirs.isEmpty && !ratedDirs.isEmpty {
