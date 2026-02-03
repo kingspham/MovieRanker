@@ -645,18 +645,7 @@ struct SearchView: View {
                     .padding(.horizontal, 4)
                 }
             } header: {
-                NavigationLink {
-                    SuggestedMediaView(userId: userId, mediaType: "movie")
-                        .modelContext(context)
-                } label: {
-                    HStack {
-                        Text("Suggested Movies")
-                        Spacer()
-                        Image(systemName: "chevron.right")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
+                Text("Suggested Movies")
             }
         }
 
@@ -672,18 +661,7 @@ struct SearchView: View {
                     .padding(.horizontal, 4)
                 }
             } header: {
-                NavigationLink {
-                    SuggestedMediaView(userId: userId, mediaType: "tv")
-                        .modelContext(context)
-                } label: {
-                    HStack {
-                        Text("Suggested Shows")
-                        Spacer()
-                        Image(systemName: "chevron.right")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
+                Text("Suggested Shows")
             }
         }
 

@@ -1164,9 +1164,9 @@ final class LinearPredictionEngine: PredictionEngine {
                 totalPossible += 3.0
             }
 
-            // Same director (very strong signal)
-            let movieTags = movie.tags
-            let ratedTags = ratedMovie.tags
+            // Same director (very strong signal) - tags is [String], not optional
+            let movieTags: [String] = movie.tags
+            let ratedTags: [String] = ratedMovie.tags
             if !movieTags.isEmpty && !ratedTags.isEmpty {
                 let movieDirs = movieTags.filter { $0.starts(with: "dir:") }
                 let ratedDirs = ratedTags.filter { $0.starts(with: "dir:") }
