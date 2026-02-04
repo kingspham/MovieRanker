@@ -198,121 +198,68 @@ struct SearchView: View {
                         }
                     }
                 }
-                // MARK: - DISCOVERY
+                // MARK: - DISCOVERY (7 sections)
                 else {
-                    // Suggested Movies (personalized based on user's taste)
                     if !suggestedMovies.isEmpty {
                         Section(header: HStack {
-                            Text("✨ Suggested Movies")
+                            Text("✨ \(L10n.suggestedMovies)")
                             Spacer()
-                            NavigationLink("See All") {
+                            NavigationLink(L10n.isSpanish ? "Ver Más" : "See All") {
                                 SuggestedForYouView(userId: userId)
                             }
                             .font(.caption)
                         }) {
-                            ScrollView(.horizontal, showsIndicators: false) {
-                                HStack(spacing: 16) {
-                                    ForEach(suggestedMovies, id: \.id) { m in DiscoveryCard(item: m) }
-                                }.padding(.vertical, 8)
-                            }.listRowInsets(EdgeInsets())
+                            discoveryScroll(items: suggestedMovies)
                         }
                     }
 
                     if !suggestedShows.isEmpty {
-                        Section(header: Text("✨ Suggested Shows")) {
-                            ScrollView(.horizontal, showsIndicators: false) {
-                                HStack(spacing: 16) {
-                                    ForEach(suggestedShows, id: \.id) { m in DiscoveryCard(item: m) }
-                                }.padding(.vertical, 8)
-                            }.listRowInsets(EdgeInsets())
-                        }
-                    }
-
-                    // Suggested Movies (high predicted score movies)
-                    if !suggestedMovies.isEmpty {
-                        Section(header: Text("🎬 Suggested Movies")) {
-                            ScrollView(.horizontal, showsIndicators: false) {
-                                HStack(spacing: 16) {
-                                    ForEach(suggestedMovies, id: \.id) { m in DiscoveryCard(item: m) }
-                                }.padding(.vertical, 8)
-                            }.listRowInsets(EdgeInsets())
-                        }
-                    }
-
-                    // Suggested Shows (high predicted score TV shows)
-                    if !suggestedShows.isEmpty {
-                        Section(header: Text("📺 Suggested Shows")) {
-                            ScrollView(.horizontal, showsIndicators: false) {
-                                HStack(spacing: 16) {
-                                    ForEach(suggestedShows, id: \.id) { m in DiscoveryCard(item: m) }
-                                }.padding(.vertical, 8)
-                            }.listRowInsets(EdgeInsets())
+                        Section(header: Text("✨ \(L10n.suggestedShows)")) {
+                            discoveryScroll(items: suggestedShows)
                         }
                     }
 
                     if !trending.isEmpty {
-                        Section(header: Text("🔥 Trending Today")) {
-                            ScrollView(.horizontal, showsIndicators: false) {
-                                HStack(spacing: 16) {
-                                    ForEach(trending, id: \.id) { m in DiscoveryCard(item: m) }
-                                }.padding(.vertical, 8)
-                            }.listRowInsets(EdgeInsets())
+                        Section(header: Text("🔥 \(L10n.trendingToday)")) {
+                            discoveryScroll(items: trending)
                         }
                     }
 
                     if !inTheaters.isEmpty {
                         Section(header: HStack {
-                            Text("🍿 In Theaters")
+                            Text("🍿 \(L10n.inTheaters)")
                             Spacer()
-                            NavigationLink("See All") {
+                            NavigationLink(L10n.isSpanish ? "Ver Más" : "See All") {
                                 InTheatersView()
                             }
                             .font(.caption)
                         }) {
-                            ScrollView(.horizontal, showsIndicators: false) {
-                                HStack(spacing: 16) {
-                                    ForEach(inTheaters, id: \.id) { m in DiscoveryCard(item: m) }
-                                }.padding(.vertical, 8)
-                            }.listRowInsets(EdgeInsets())
+                            discoveryScroll(items: inTheaters)
                         }
                     }
 
                     if !streaming.isEmpty {
                         Section(header: HStack {
-                            Text("📺 Streaming Now")
+                            Text("📺 \(L10n.streamingNow)")
                             Spacer()
-                            NavigationLink("See All") {
+                            NavigationLink(L10n.isSpanish ? "Ver Más" : "See All") {
                                 StreamingNowView()
                             }
                             .font(.caption)
                         }) {
-                            ScrollView(.horizontal, showsIndicators: false) {
-                                HStack(spacing: 16) {
-                                    ForEach(streaming, id: \.id) { m in DiscoveryCard(item: m) }
-                                }.padding(.vertical, 8)
-                            }.listRowInsets(EdgeInsets())
+                            discoveryScroll(items: streaming)
                         }
                     }
 
-                    // Suggested Books
                     if !suggestedBooks.isEmpty {
-                        Section(header: Text("📚 Popular Books")) {
-                            ScrollView(.horizontal, showsIndicators: false) {
-                                HStack(spacing: 16) {
-                                    ForEach(suggestedBooks, id: \.id) { book in DiscoveryCard(item: book) }
-                                }.padding(.vertical, 8)
-                            }.listRowInsets(EdgeInsets())
+                        Section(header: Text("📚 \(L10n.popularBooks)")) {
+                            discoveryScroll(items: suggestedBooks)
                         }
                     }
 
-                    // Suggested Podcasts
                     if !suggestedPodcasts.isEmpty {
-                        Section(header: Text("🎙️ Top Podcasts")) {
-                            ScrollView(.horizontal, showsIndicators: false) {
-                                HStack(spacing: 16) {
-                                    ForEach(suggestedPodcasts, id: \.id) { podcast in DiscoveryCard(item: podcast) }
-                                }.padding(.vertical, 8)
-                            }.listRowInsets(EdgeInsets())
+                        Section(header: Text("🎙️ \(L10n.topPodcasts)")) {
+                            discoveryScroll(items: suggestedPodcasts)
                         }
                     }
                 }

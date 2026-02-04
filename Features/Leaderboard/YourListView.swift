@@ -17,6 +17,14 @@ struct YourListView: View {
         case history = "History"
         case saved = "Saved"
         case lists = "Lists"
+
+        var displayName: String {
+            switch self {
+            case .history: return L10n.history
+            case .saved: return L10n.saved
+            case .lists: return L10n.lists
+            }
+        }
     }
 
     @State private var selectedTab: LibraryTab = .history
@@ -36,9 +44,9 @@ struct YourListView: View {
         NavigationStack {
             VStack(spacing: 0) {
                 // Custom Tab Picker
-                Picker("Library", selection: $selectedTab) {
+                Picker(L10n.library, selection: $selectedTab) {
                     ForEach(LibraryTab.allCases, id: \.self) { tab in
-                        Text(tab.rawValue).tag(tab)
+                        Text(tab.displayName).tag(tab)
                     }
                 }
                 .pickerStyle(.segmented)
@@ -219,9 +227,9 @@ struct SavedView: View {
             List {
                 if sortedItems.isEmpty {
                     ContentUnavailableView(
-                        "No Saved Items",
+                        L10n.noSavedItems,
                         systemImage: "bookmark",
-                        description: Text("Items you save will appear here")
+                        description: Text(L10n.savedDescription)
                     )
                 } else {
                     ForEach(sortedItems, id: \.id) { item in
@@ -253,7 +261,7 @@ struct SavedView: View {
                                         await UserItemService.shared.deleteUserItemFromCloud(itemId: itemId)
                                     }
                                 } label: {
-                                    Label("Remove", systemImage: "trash")
+                                    Label(L10n.remove, systemImage: "trash")
                                 }
                             }
                         }
@@ -262,7 +270,7 @@ struct SavedView: View {
             }
             .listStyle(.plain)
         }
-        .searchable(text: $searchText, prompt: "Search watchlist")
+        .searchable(text: $searchText, prompt: L10n.searchWatchlist)
         .sheet(isPresented: $showRankAll) {
             BulkRankingView()
         }
@@ -445,9 +453,9 @@ struct CustomListsView: View {
         List {
             if myLists.isEmpty {
                 ContentUnavailableView(
-                    "No Lists Yet",
+                    L10n.noLists,
                     systemImage: "list.bullet",
-                    description: Text("Create custom lists to organize your content")
+                    description: Text(L10n.listsDescription)
                 )
             } else {
                 ForEach(myLists) { list in
@@ -517,20 +525,20 @@ struct CreateListSheet: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("List Info") {
-                    TextField("List Name", text: $listName)
-                    TextField("Description (optional)", text: $listDescription)
+                Section(L10n.isSpanish ? "Información" : "List Info") {
+                    TextField(L10n.listName, text: $listName)
+                    TextField(L10n.listDescription, text: $listDescription)
                 }
 
-                Section("Privacy") {
+                Section(L10n.privacy) {
                     Toggle(isOn: $isPublic) {
                         HStack {
                             Image(systemName: isPublic ? "globe" : "lock.fill")
                                 .foregroundStyle(isPublic ? .blue : .secondary)
                             VStack(alignment: .leading) {
-                                Text(isPublic ? "Public" : "Private")
+                                Text(isPublic ? L10n.publicList : L10n.privateList)
                                     .font(.body)
-                                Text(isPublic ? "Anyone can see this list" : "Only you can see this list")
+                                Text(isPublic ? L10n.anyoneCanSee : L10n.onlyYou)
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
@@ -538,16 +546,16 @@ struct CreateListSheet: View {
                     }
                 }
             }
-            .navigationTitle("New List")
+            .navigationTitle(L10n.newList)
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
+                    Button(L10n.cancel) { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Create") {
+                    Button(L10n.create) {
                         createList()
                     }
                     .disabled(listName.isEmpty)
@@ -669,20 +677,20 @@ struct EditListSheet: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("List Info") {
-                    TextField("List Name", text: $listName)
-                    TextField("Description", text: $listDescription)
+                Section(L10n.isSpanish ? "Información" : "List Info") {
+                    TextField(L10n.listName, text: $listName)
+                    TextField(L10n.listDescription, text: $listDescription)
                 }
 
-                Section("Privacy") {
+                Section(L10n.privacy) {
                     Toggle(isOn: $isPublic) {
                         HStack {
                             Image(systemName: isPublic ? "globe" : "lock.fill")
                                 .foregroundStyle(isPublic ? .blue : .secondary)
                             VStack(alignment: .leading) {
-                                Text(isPublic ? "Public" : "Private")
+                                Text(isPublic ? L10n.publicList : L10n.privateList)
                                     .font(.body)
-                                Text(isPublic ? "Anyone can see this list" : "Only you can see this list")
+                                Text(isPublic ? L10n.anyoneCanSee : L10n.onlyYou)
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
@@ -690,16 +698,16 @@ struct EditListSheet: View {
                     }
                 }
             }
-            .navigationTitle("Edit List")
+            .navigationTitle(L10n.isSpanish ? "Editar Lista" : "Edit List")
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
+                    Button(L10n.cancel) { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") {
+                    Button(L10n.save) {
                         saveChanges()
                     }
                     .disabled(listName.isEmpty)

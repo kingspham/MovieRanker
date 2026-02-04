@@ -434,9 +434,15 @@ public actor TMDbClient {
     }
 
     private func request<T: Decodable>(path: String, items: [URLQueryItem]) async throws -> T {
+        // Append language parameter based on user's preference
+        var allItems = items
+        let lang = UserDefaults.standard.string(forKey: "appLanguage") ?? "en"
+        let tmdbLang = lang == "es" ? "es-ES" : "en-US"
+        allItems.append(URLQueryItem(name: "language", value: tmdbLang))
+
         var comps = URLComponents(url: base.appendingPathComponent(path), resolvingAgainstBaseURL: false)!
-        comps.queryItems = items.isEmpty ? nil : items
-        
+        comps.queryItems = allItems.isEmpty ? nil : allItems
+
         guard let url = comps.url else { throw TMDbError.badURL }
         
         var request = URLRequest(url: url)

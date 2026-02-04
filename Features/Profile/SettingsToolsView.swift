@@ -15,6 +15,7 @@ struct SettingsToolsView: View {
     @State private var showAlert = false
     @State private var alertMessage = ""
     @State private var userId = "guest"
+    @AppStorage("appLanguage") private var appLanguage: String = "en"
 
     @Query private var allLogs: [LogEntry]
     @Query private var allUserItems: [UserItem]
@@ -35,35 +36,52 @@ struct SettingsToolsView: View {
                         }
                     }
                 } header: {
-                    Text("Appearance")
+                    Text(L10n.appearance)
                 } footer: {
                     Text("System follows your device's dark mode setting")
+                }
+
+                // LANGUAGE SECTION
+                Section {
+                    Picker(L10n.language, selection: $appLanguage) {
+                        ForEach(AppLanguage.allCases) { lang in
+                            HStack {
+                                Text(lang.flag)
+                                Text(lang.displayName)
+                            }
+                            .tag(lang.rawValue)
+                        }
+                    }
+                } header: {
+                    Text(L10n.language)
+                } footer: {
+                    Text(L10n.languageFooter)
                 }
 
                 // CURRENT STATUS
                 Section {
                     HStack {
-                        Text("Ranked Items:")
+                        Text(L10n.rankedItems)
                         Spacer()
                         Text("\(allUserItems.filter { $0.state == .seen }.count)")
                             .foregroundStyle(.blue)
                     }
 
                     HStack {
-                        Text("Watchlist:")
+                        Text(L10n.watchlist)
                         Spacer()
                         Text("\(allUserItems.filter { $0.state == .watchlist }.count)")
                             .foregroundStyle(.green)
                     }
 
                     HStack {
-                        Text("Log Entries:")
+                        Text(L10n.logEntries)
                         Spacer()
                         Text("\(allLogs.count)")
                             .foregroundStyle(.orange)
                     }
                 } header: {
-                    Text("Your Stats")
+                    Text(L10n.yourStats)
                 }
 
                 // IMPORT
@@ -92,9 +110,9 @@ struct SettingsToolsView: View {
                         }
                     }
                 } header: {
-                    Text("Import Data")
+                    Text(L10n.importData)
                 } footer: {
-                    Text("Import your viewing history from streaming services")
+                    Text(L10n.isSpanish ? "Importa tu historial de visualización de servicios de streaming" : "Import your viewing history from streaming services")
                 }
 
                 // QUICK ACTIONS
@@ -127,7 +145,7 @@ struct SettingsToolsView: View {
                         }
                     }
                 } header: {
-                    Text("Quick Actions")
+                    Text(L10n.quickActions)
                 }
 
                 // ABOUT
@@ -135,17 +153,17 @@ struct SettingsToolsView: View {
                     if let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String,
                        let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String {
                         HStack {
-                            Text("Version")
+                            Text(L10n.version)
                             Spacer()
                             Text("\(version) (\(build))")
                                 .foregroundStyle(.secondary)
                         }
                     }
                 } header: {
-                    Text("About")
+                    Text(L10n.about)
                 }
             }
-            .navigationTitle("Settings")
+            .navigationTitle(L10n.settings)
             .fileImporter(
                 isPresented: $showingFilePicker,
                 allowedContentTypes: [.commaSeparatedText],
