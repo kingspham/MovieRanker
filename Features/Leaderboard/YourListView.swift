@@ -119,9 +119,9 @@ struct SavedView: View {
             sorted = items.sorted { $0.createdAt > $1.createdAt }
         case .predicted:
             // Use cached predictions for sorting
-            sorted = items.sorted { (item1, item2) in
-                let pred1 = predictionCache[item1.id] ?? 50.0
-                let pred2 = predictionCache[item2.id] ?? 50.0
+            sorted = watchlistItems.sorted { (item1, item2) in
+                let pred1 = predictionCache[item1.movie?.id ?? item1.id] ?? 50.0
+                let pred2 = predictionCache[item2.movie?.id ?? item2.id] ?? 50.0
                 return pred1 > pred2
             }
         case .title:
@@ -235,7 +235,7 @@ struct SavedView: View {
                                 WatchlistRow(
                                     movie: movie,
                                     userId: userId,
-                                    cachedPredictionScore: predictionCache[item.id]
+                                    cachedPredictionScore: predictionCache[movie.id]
                                 )
                             }
                             .swipeActions(edge: .trailing, allowsFullSwipe: true) {
@@ -278,18 +278,13 @@ struct SavedView: View {
             return
         }
 
-        // Use batch prediction for efficiency (fetches data once instead of per-movie)
         let engine = LinearPredictionEngine()
-        let predictions = engine.predictBatch(for: movies, in: context, userId: userId)
-
-        // Map movie IDs to UserItem IDs for cache
         var newCache: [UUID: Double] = [:]
-        for item in watchlistItems {
-            guard let movie = item.movie,
-                  let pred = predictions[movie.id] else { continue }
-            // Convert to 0-100 scale (prediction score is 0-10)
+        for movie in movies {
+            let pred = engine.predict(for: movie, in: context, userId: userId)
             let score100 = pred.score * 10.0
-            newCache[item.id] = score100
+            newCache[movie.id] = score100
+            print("📊 Prediction for \(movie.title): \(Int(score100))")
         }
 
         await MainActor.run {
