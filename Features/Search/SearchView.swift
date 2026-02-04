@@ -369,19 +369,19 @@ struct SearchView: View {
 
         do {
             let client = try TMDbClient()
+            let looksLikeName = queryLooksLikeName(searchQuery)
 
-            // Always do multi-search + books + podcasts
+            // Run multi-search + books + podcasts in parallel
             async let tmdbTask = client.searchMulti(query: query)
             async let booksTask = BooksAPI().searchBooks(query: query)
             async let podcastsTask = PodcastsAPI().search(query: query)
 
-            // Also do a dedicated person search if query looks like a name
-            let looksLikeName = queryLooksLikeName(searchQuery)
-            var dedicatedPersonResults: [TMDbItem] = []
+            // Do a dedicated person search if query looks like a name (runs before awaiting others)
+            let personResults: [TMDbItem]
             if looksLikeName {
                 do {
                     let personPage = try await client.searchPerson(query: searchQuery)
-                    dedicatedPersonResults = personPage.results.map { person in
+                    personResults = personPage.results.map { person in
                         TMDbItem(
                             id: person.id,
                             name: person.displayTitle,
@@ -392,8 +392,11 @@ struct SearchView: View {
                         )
                     }
                 } catch {
-                    print("🔍 Person search error: \(error)")
+                    print("Person search error: \(error)")
+                    personResults = []
                 }
+            } else {
+                personResults = []
             }
 
             let (tmdbPage, bookResults, podcastResults) = try await (tmdbTask, booksTask, podcastsTask)
