@@ -343,6 +343,13 @@ struct SearchView: View {
         }
     }
 
+    /// Check if a query looks like a person's name (all letters/spaces, 1-4 words)
+    private func queryLooksLikeName(_ query: String) -> Bool {
+        let q = query.lowercased().trimmingCharacters(in: .whitespaces)
+        let words = q.split(separator: " ")
+        return words.count >= 1 && words.count <= 4 && q.allSatisfy({ $0.isLetter || $0.isWhitespace || $0 == "-" || $0 == "'" })
+    }
+
     private func performUnifiedSearch() async {
         isLoading = true
         didYouMeanSuggestion = nil
@@ -361,9 +368,35 @@ struct SearchView: View {
         }
 
         do {
-            async let tmdbTask = TMDbClient().searchMulti(query: query)
+            let client = TMDbClient()
+
+            // Always do multi-search + books + podcasts
+            async let tmdbTask = client.searchMulti(query: query)
             async let booksTask = BooksAPI().searchBooks(query: query)
             async let podcastsTask = PodcastsAPI().search(query: query)
+
+            // Also do a dedicated person search if query looks like a name
+            let looksLikeName = queryLooksLikeName(searchQuery)
+            let personSearchTask: Task<[TMDbItem], Never> = Task {
+                guard looksLikeName else { return [] }
+                do {
+                    let personPage = try await client.searchPerson(query: searchQuery)
+                    // Person search results don't include media_type, so create new items with it set
+                    return personPage.results.map { person in
+                        TMDbItem(
+                            id: person.id,
+                            name: person.displayTitle,
+                            overview: person.overview,
+                            profilePath: person.profilePath ?? person.posterPath,
+                            mediaType: "person",
+                            popularity: person.popularity
+                        )
+                    }
+                } catch {
+                    print("🔍 Person search error: \(error)")
+                    return []
+                }
+            }
 
             let (tmdbPage, bookResults, podcastResults) = try await (tmdbTask, booksTask, podcastsTask)
             let visualResults = tmdbPage.results.filter { $0.mediaType == "movie" || $0.mediaType == "tv" }
@@ -630,141 +663,65 @@ struct SearchView: View {
         else { MovieInfoView(tmdb: item, mediaType: item.mediaType ?? "movie").modelContext(context) }
     }
 
-    // MARK: - Discovery Sections (single definition to prevent duplicates)
+    // MARK: - Discovery Section Model (identifiable to prevent SwiftUI duplication)
+    enum DiscoverySectionType: String, CaseIterable {
+        case suggestedMovies, suggestedShows, trending, inTheaters, streaming, books, podcasts
+    }
+
+    struct DiscoverySectionItem: Identifiable {
+        let type: DiscoverySectionType
+        var id: String { type.rawValue }
+    }
+
+    private var visibleDiscoverySections: [DiscoverySectionItem] {
+        var sections: [DiscoverySectionItem] = []
+        if !suggestedMovies.isEmpty { sections.append(DiscoverySectionItem(type: .suggestedMovies)) }
+        if !suggestedShows.isEmpty { sections.append(DiscoverySectionItem(type: .suggestedShows)) }
+        if !trending.isEmpty { sections.append(DiscoverySectionItem(type: .trending)) }
+        if !inTheaters.isEmpty { sections.append(DiscoverySectionItem(type: .inTheaters)) }
+        if !streaming.isEmpty { sections.append(DiscoverySectionItem(type: .streaming)) }
+        if !suggestedBooks.isEmpty { sections.append(DiscoverySectionItem(type: .books)) }
+        if !suggestedPodcasts.isEmpty { sections.append(DiscoverySectionItem(type: .podcasts)) }
+        return sections
+    }
+
+    private func itemsForSection(_ type: DiscoverySectionType) -> [TMDbItem] {
+        switch type {
+        case .suggestedMovies: return suggestedMovies
+        case .suggestedShows: return suggestedShows
+        case .trending: return trending
+        case .inTheaters: return inTheaters
+        case .streaming: return streaming
+        case .books: return suggestedBooks
+        case .podcasts: return suggestedPodcasts
+        }
+    }
+
+    private func titleForSection(_ type: DiscoverySectionType) -> String {
+        switch type {
+        case .suggestedMovies: return "Suggested Movies"
+        case .suggestedShows: return "Suggested Shows"
+        case .trending: return "Trending Today"
+        case .inTheaters: return "In Theaters"
+        case .streaming: return "Streaming Now"
+        case .books: return "Popular Books"
+        case .podcasts: return "Top Podcasts"
+        }
+    }
+
     @ViewBuilder
-    private var discoverySections: some View {
-        // Suggested Movies
-        if !suggestedMovies.isEmpty {
-            Section {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 12) {
-                        ForEach(suggestedMovies, id: \.id) { item in
-                            DiscoveryCard(item: item)
-                        }
+    private func discoverySectionView(for type: DiscoverySectionType) -> some View {
+        Section {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 12) {
+                    ForEach(itemsForSection(type), id: \.id) { item in
+                        DiscoveryCard(item: item)
                     }
-                    .padding(.horizontal, 4)
                 }
-            } header: {
-                Text("Suggested Movies")
+                .padding(.horizontal, 4)
             }
-        }
-
-        // Suggested Shows
-        if !suggestedShows.isEmpty {
-            Section {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 12) {
-                        ForEach(suggestedShows, id: \.id) { item in
-                            DiscoveryCard(item: item)
-                        }
-                    }
-                    .padding(.horizontal, 4)
-                }
-            } header: {
-                Text("Suggested Shows")
-            }
-        }
-
-        // Trending Today
-        if !trending.isEmpty {
-            Section {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 12) {
-                        ForEach(trending, id: \.id) { item in
-                            DiscoveryCard(item: item)
-                        }
-                    }
-                    .padding(.horizontal, 4)
-                }
-            } header: {
-                Text("Trending Today")
-            }
-        }
-
-        // In Theaters
-        if !inTheaters.isEmpty {
-            Section {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 12) {
-                        ForEach(inTheaters, id: \.id) { item in
-                            DiscoveryCard(item: item)
-                        }
-                    }
-                    .padding(.horizontal, 4)
-                }
-            } header: {
-                NavigationLink {
-                    InTheatersView()
-                        .modelContext(context)
-                } label: {
-                    HStack {
-                        Text("In Theaters")
-                        Spacer()
-                        Image(systemName: "chevron.right")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-            }
-        }
-
-        // Streaming Now
-        if !streaming.isEmpty {
-            Section {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 12) {
-                        ForEach(streaming, id: \.id) { item in
-                            DiscoveryCard(item: item)
-                        }
-                    }
-                    .padding(.horizontal, 4)
-                }
-            } header: {
-                NavigationLink {
-                    StreamingNowView()
-                        .modelContext(context)
-                } label: {
-                    HStack {
-                        Text("Streaming Now")
-                        Spacer()
-                        Image(systemName: "chevron.right")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-            }
-        }
-
-        // Popular Books
-        if !suggestedBooks.isEmpty {
-            Section {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 12) {
-                        ForEach(suggestedBooks, id: \.id) { item in
-                            DiscoveryCard(item: item)
-                        }
-                    }
-                    .padding(.horizontal, 4)
-                }
-            } header: {
-                Text("Popular Books")
-            }
-        }
-
-        // Top Podcasts
-        if !suggestedPodcasts.isEmpty {
-            Section {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 12) {
-                        ForEach(suggestedPodcasts, id: \.id) { item in
-                            DiscoveryCard(item: item)
-                        }
-                    }
-                    .padding(.horizontal, 4)
-                }
-            } header: {
-                Text("Top Podcasts")
-            }
+        } header: {
+            Text(titleForSection(type))
         }
     }
 

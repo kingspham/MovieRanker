@@ -298,6 +298,14 @@ public actor TMDbClient {
         ])
     }
     
+    public func searchPerson(query: String, page: Int = 1) async throws -> TMDbPagedResponse<TMDbItem> {
+        try await request(path: "/search/person", items: [
+            URLQueryItem(name: "query", value: query),
+            URLQueryItem(name: "page", value: String(page)),
+            URLQueryItem(name: "include_adult", value: "false")
+        ])
+    }
+
     public func searchMovies(query: String, page: Int = 1) async throws -> TMDbPagedResponse<TMDbItem> {
         try await request(path: "/search/movie", items: [
             URLQueryItem(name: "query", value: query),
