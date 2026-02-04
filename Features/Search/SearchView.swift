@@ -198,28 +198,122 @@ struct SearchView: View {
                         }
                     }
                 }
-                // MARK: - DISCOVERY (7 sections max, each with explicit .id to prevent duplication)
-                if !hasSearched || query.isEmpty {
+                // MARK: - DISCOVERY
+                else {
+                    // Suggested Movies (personalized based on user's taste)
                     if !suggestedMovies.isEmpty {
-                        Section { discoveryScroll(items: suggestedMovies) } header: { Text("Suggested Movies") }.id("disc-movies")
+                        Section(header: HStack {
+                            Text("✨ Suggested Movies")
+                            Spacer()
+                            NavigationLink("See All") {
+                                SuggestedForYouView(userId: userId)
+                            }
+                            .font(.caption)
+                        }) {
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                HStack(spacing: 16) {
+                                    ForEach(suggestedMovies, id: \.id) { m in DiscoveryCard(item: m) }
+                                }.padding(.vertical, 8)
+                            }.listRowInsets(EdgeInsets())
+                        }
                     }
+
                     if !suggestedShows.isEmpty {
-                        Section { discoveryScroll(items: suggestedShows) } header: { Text("Suggested Shows") }.id("disc-shows")
+                        Section(header: Text("✨ Suggested Shows")) {
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                HStack(spacing: 16) {
+                                    ForEach(suggestedShows, id: \.id) { m in DiscoveryCard(item: m) }
+                                }.padding(.vertical, 8)
+                            }.listRowInsets(EdgeInsets())
+                        }
                     }
+
+                    // Suggested Movies (high predicted score movies)
+                    if !suggestedMovies.isEmpty {
+                        Section(header: Text("🎬 Suggested Movies")) {
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                HStack(spacing: 16) {
+                                    ForEach(suggestedMovies, id: \.id) { m in DiscoveryCard(item: m) }
+                                }.padding(.vertical, 8)
+                            }.listRowInsets(EdgeInsets())
+                        }
+                    }
+
+                    // Suggested Shows (high predicted score TV shows)
+                    if !suggestedShows.isEmpty {
+                        Section(header: Text("📺 Suggested Shows")) {
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                HStack(spacing: 16) {
+                                    ForEach(suggestedShows, id: \.id) { m in DiscoveryCard(item: m) }
+                                }.padding(.vertical, 8)
+                            }.listRowInsets(EdgeInsets())
+                        }
+                    }
+
                     if !trending.isEmpty {
-                        Section { discoveryScroll(items: trending) } header: { Text("Trending Today") }.id("disc-trending")
+                        Section(header: Text("🔥 Trending Today")) {
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                HStack(spacing: 16) {
+                                    ForEach(trending, id: \.id) { m in DiscoveryCard(item: m) }
+                                }.padding(.vertical, 8)
+                            }.listRowInsets(EdgeInsets())
+                        }
                     }
+
                     if !inTheaters.isEmpty {
-                        Section { discoveryScroll(items: inTheaters) } header: { Text("In Theaters") }.id("disc-theaters")
+                        Section(header: HStack {
+                            Text("🍿 In Theaters")
+                            Spacer()
+                            NavigationLink("See All") {
+                                InTheatersView()
+                            }
+                            .font(.caption)
+                        }) {
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                HStack(spacing: 16) {
+                                    ForEach(inTheaters, id: \.id) { m in DiscoveryCard(item: m) }
+                                }.padding(.vertical, 8)
+                            }.listRowInsets(EdgeInsets())
+                        }
                     }
+
                     if !streaming.isEmpty {
-                        Section { discoveryScroll(items: streaming) } header: { Text("Streaming Now") }.id("disc-streaming")
+                        Section(header: HStack {
+                            Text("📺 Streaming Now")
+                            Spacer()
+                            NavigationLink("See All") {
+                                StreamingNowView()
+                            }
+                            .font(.caption)
+                        }) {
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                HStack(spacing: 16) {
+                                    ForEach(streaming, id: \.id) { m in DiscoveryCard(item: m) }
+                                }.padding(.vertical, 8)
+                            }.listRowInsets(EdgeInsets())
+                        }
                     }
+
+                    // Suggested Books
                     if !suggestedBooks.isEmpty {
-                        Section { discoveryScroll(items: suggestedBooks) } header: { Text("Popular Books") }.id("disc-books")
+                        Section(header: Text("📚 Popular Books")) {
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                HStack(spacing: 16) {
+                                    ForEach(suggestedBooks, id: \.id) { book in DiscoveryCard(item: book) }
+                                }.padding(.vertical, 8)
+                            }.listRowInsets(EdgeInsets())
+                        }
                     }
+
+                    // Suggested Podcasts
                     if !suggestedPodcasts.isEmpty {
-                        Section { discoveryScroll(items: suggestedPodcasts) } header: { Text("Top Podcasts") }.id("disc-podcasts")
+                        Section(header: Text("🎙️ Top Podcasts")) {
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                HStack(spacing: 16) {
+                                    ForEach(suggestedPodcasts, id: \.id) { podcast in DiscoveryCard(item: podcast) }
+                                }.padding(.vertical, 8)
+                            }.listRowInsets(EdgeInsets())
+                        }
                     }
                 }
             }
@@ -303,31 +397,10 @@ struct SearchView: View {
             }
 
             let (tmdbPage, bookResults, podcastResults) = try await (tmdbTask, booksTask, podcastsTask)
+            let visualResults = tmdbPage.results.filter { $0.mediaType == "movie" || $0.mediaType == "tv" }
+            let peopleResults = tmdbPage.results.filter { $0.mediaType == "person" }
 
-            // Include movie, tv, AND person results from multi-search
-            var visualResults = tmdbPage.results.filter {
-                $0.mediaType == "movie" || $0.mediaType == "tv" || $0.mediaType == "person"
-            }
-
-            // Merge dedicated person results (dedup by ID)
-            let existingPersonIds = Set(visualResults.filter { $0.mediaType == "person" }.map { $0.id })
-            for person in dedicatedPersonResults {
-                if !existingPersonIds.contains(person.id) {
-                    visualResults.append(person)
-                }
-            }
-
-            // Debug: Log person results
-            let allPersonResults = visualResults.filter { $0.mediaType == "person" }
-            print("🔍 Search '\(searchQuery)': \(allPersonResults.count) person(s) found, \(dedicatedPersonResults.count) from dedicated search")
-            for person in allPersonResults.prefix(3) {
-                print("🔍 Person: \(person.displayTitle) | profile: \(person.profilePath ?? "nil") | pop: \(person.popularity ?? 0)")
-            }
-
-            // Reorder results: prioritize persons when query looks like a name
-            let reorderedResults = reorderSearchResults(visualResults, query: searchQuery)
-
-            self.results = reorderedResults + bookResults + podcastResults
+            self.results = visualResults + peopleResults + bookResults + podcastResults
             self.hasSearched = true
 
             if results.isEmpty && query.count >= 2 {
@@ -443,7 +516,7 @@ struct SearchView: View {
         for score in userScores {
             if let movie = allMovies.first(where: { $0.id == score.movieID }) {
                 if let tmdbId = movie.tmdbID { seenTmdbIds.insert(tmdbId) }
-                for genreId in movie.genreIDs ?? [] {
+                for genreId in movie.genreIDs {
                     genreCount[genreId, default: 0] += 1
                 }
             }
@@ -454,7 +527,7 @@ struct SearchView: View {
         // If no genres from scores, use genres from all movies in library
         if genreCount.isEmpty {
             for movie in allMovies {
-                for genreId in movie.genreIDs ?? [] {
+                for genreId in movie.genreIDs {
                     genreCount[genreId, default: 0] += 1
                 }
             }
@@ -467,13 +540,9 @@ struct SearchView: View {
         let finalGenres = topGenres.isEmpty ? [18, 28, 35] : Array(topGenres)
         print("🎬 Suggestions: Using genres \(finalGenres)")
 
-        let movieGenreToTVGenre: [Int: Int] = [
-            28: 10759, 12: 10759, 878: 10765, 14: 10765
-        ]
-
         do {
-            async let movieTask = client.discoverByGenres(genreIds: finalGenres)
-            async let tvTask = client.discoverTVByGenres(genreIds: finalGenres.map { movieGenreToTVGenre[$0] ?? $0 })
+            async let movieTask = client.discoverByGenres(genreIds: Array(topGenres))
+            async let tvTask = client.discoverTVByGenres(genreIds: Array(topGenres))
             let (movieResponse, tvResponse) = try await (movieTask, tvTask)
 
             // Filter out already-seen content and deduplicate by ID
@@ -499,9 +568,19 @@ struct SearchView: View {
     func SearchResultRow(item: TMDbItem) -> some View {
         NavigationLink { destination(for: item) } label: {
             HStack(spacing: 12) {
-                // Handle person results differently (circular profile image)
                 if item.mediaType == "person" {
-                    PersonProfileImage(profilePath: item.profilePath)
+                    if let path = item.posterPath, path.contains("http") {
+                        AsyncImage(url: URL(string: path)) { p in
+                            if let i = p.image { i.resizable().scaledToFill() } else { Color.gray.opacity(0.2) }
+                        }
+                        .frame(width: 48, height: 72)
+                        .cornerRadius(4)
+                    } else {
+                        Image(systemName: "person.fill")
+                            .frame(width: 48, height: 72)
+                            .background(Color.gray.opacity(0.15))
+                            .cornerRadius(4)
+                    }
                 } else if let path = item.posterPath, path.contains("http") {
                     AsyncImage(url: URL(string: path)) { p in if let i = p.image { i.resizable().scaledToFill() } else { Color.gray.opacity(0.2) } }.frame(width: 48, height: 72).cornerRadius(4)
                 } else {
@@ -599,8 +678,31 @@ struct SearchView: View {
         if type == "tv" { color = .blue; label = "TV" }
         else if type == "book" { color = .green; label = "Book" }
         else if type == "podcast" { color = .purple; label = "Podcast" }
-        else if type == "person" { color = .pink; label = "Actor" }
+        else if type == "person" { color = .gray; label = "Person" }
         return Text(label).font(.caption2).fontWeight(.bold).padding(.horizontal, 6).padding(.vertical, 2).background(color.opacity(0.1)).foregroundColor(color).cornerRadius(4)
+    }
+
+    private func scoreSuggestions(
+        items: [TMDbItem],
+        mediaType: String,
+        engine: LinearPredictionEngine
+    ) -> [(item: TMDbItem, score: Double)] {
+        var scored: [(TMDbItem, Double)] = []
+        for item in items {
+            let temp = Movie(
+                title: item.displayTitle,
+                year: item.year,
+                tmdbID: item.id,
+                posterPath: item.posterPath,
+                genreIDs: item.genreIds ?? [],
+                mediaType: mediaType,
+                ownerId: userId
+            )
+            let prediction = engine.predict(for: temp, in: context, userId: userId)
+            scored.append((item, prediction.score))
+        }
+        // Sort descending by score using explicit element access to avoid type inference issues
+        return scored.sorted(by: { (lhs: (TMDbItem, Double), rhs: (TMDbItem, Double)) in lhs.1 > rhs.1 })
     }
 }
 
@@ -863,14 +965,16 @@ struct SuggestedForYouView: View {
         for score in userScores {
             if let movie = allMovies.first(where: { $0.id == score.movieID }) {
                 if let tmdbId = movie.tmdbID { seenTmdbIds.insert(tmdbId) }
-                for genreId in movie.genreIDs ?? [] { genreCount[genreId, default: 0] += 1 }
+                for genreId in movie.genreIDs {
+                    genreCount[genreId, default: 0] += 1
+                }
             }
         }
 
         // Fallback to library genres if no scores
         if genreCount.isEmpty {
             for movie in allMovies {
-                for genreId in movie.genreIDs ?? [] {
+                for genreId in movie.genreIDs {
                     genreCount[genreId, default: 0] += 1
                 }
             }
@@ -890,136 +994,17 @@ struct SuggestedForYouView: View {
             async let movieTask = client.discoverByGenres(genreIds: finalGenres)
             async let tvTask = client.discoverTVByGenres(genreIds: finalGenres.map { movieGenreToTVGenre[$0] ?? $0 })
             let (movieResp, tvResp) = try await (movieTask, tvTask)
+
+            // Combine and filter
             var combined: [TMDbItem] = movieResp.results + tvResp.results
+
             combined = combined.filter { !seenTmdbIds.contains($0.id) }
-            combined.sort { ($0.popularity ?? 0) > ($1.popularity ?? 0) }
+
+            // Sort by popularity and take top 30
+            combined.sort { (lhs: TMDbItem, rhs: TMDbItem) -> Bool in
+                (lhs.popularity ?? 0) > (rhs.popularity ?? 0)
+            }
             self.suggestions = Array(combined.prefix(30))
-        } catch { print("Failed to load suggestions: \(error)") }
-        isLoading = false
-    }
-}
-
-// MARK: - Suggested Media View (Movies or Shows)
-struct SuggestedMediaView: View {
-    @Environment(\.modelContext) private var context
-    let userId: String
-    let mediaType: String // "movie" or "tv"
-
-    @Query private var allMovies: [Movie]
-    @Query private var allScores: [Score]
-
-    @State private var suggestions: [TMDbItem] = []
-    @State private var isLoading = true
-    @State private var hasLoaded = false
-    @State private var topGenreNames: [String] = []
-
-    private let genreIdToName: [Int: String] = [
-        28: "Action", 12: "Adventure", 16: "Animation", 35: "Comedy",
-        80: "Crime", 99: "Documentary", 18: "Drama", 10751: "Family",
-        14: "Fantasy", 36: "History", 27: "Horror", 10402: "Music",
-        9648: "Mystery", 10749: "Romance", 878: "Sci-Fi", 10770: "TV Movie",
-        53: "Thriller", 10752: "War", 37: "Western"
-    ]
-
-    private let movieGenreToTVGenre: [Int: Int] = [
-        28: 10759, 12: 10759, 878: 10765, 14: 10765
-    ]
-
-    var body: some View {
-        Group {
-            if isLoading {
-                VStack(spacing: 16) {
-                    ProgressView()
-                    Text("Finding \(mediaType == "movie" ? "movies" : "shows") for you...").font(.subheadline).foregroundStyle(.secondary)
-                }
-            } else if suggestions.isEmpty {
-                ContentUnavailableView("No Suggestions Yet", systemImage: mediaType == "movie" ? "film" : "tv", description: Text("Rate more \(mediaType == "movie" ? "movies" : "shows") to get personalized recommendations!"))
-            } else {
-                List {
-                    if !topGenreNames.isEmpty {
-                        Section {
-                            Text("Based on your love of \(topGenreNames.joined(separator: ", "))").font(.subheadline).foregroundStyle(.secondary)
-                        }
-                    }
-                    ForEach(suggestions, id: \.id) { item in
-                        NavigationLink {
-                            MovieInfoView(tmdb: item, mediaType: item.mediaType ?? mediaType).modelContext(context)
-                        } label: {
-                            HStack(spacing: 12) {
-                                PosterThumb(posterPath: item.posterPath, title: item.displayTitle, width: 60).cornerRadius(8)
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text(item.displayTitle).font(.headline).lineLimit(2)
-                                    if let year = item.year { Text(String(year)).font(.caption).foregroundStyle(.secondary) }
-                                }
-                            }
-                            .padding(.vertical, 4)
-                        }
-                    }
-                }
-                .listStyle(.plain)
-            }
-        }
-        .navigationTitle(mediaType == "movie" ? "Suggested Movies" : "Suggested Shows")
-        .task {
-            guard !hasLoaded else { return }
-            hasLoaded = true
-            await loadSuggestions()
-        }
-    }
-
-    private func loadSuggestions() async {
-        // Try multiple thresholds to find user's preferences
-        let allUserScores = allScores.filter { $0.ownerId == userId || $0.ownerId == "guest" }
-        var userScores = allUserScores.filter { $0.display100 >= 70 }
-        if userScores.isEmpty {
-            userScores = allUserScores.filter { $0.display100 >= 60 }
-        }
-        if userScores.isEmpty {
-            userScores = allUserScores.filter { $0.display100 >= 50 }
-        }
-
-        var genreCount: [Int: Int] = [:]
-        var seenTmdbIds = Set<Int>()
-
-        for score in userScores {
-            if let movie = allMovies.first(where: { $0.id == score.movieID }) {
-                if let tmdbId = movie.tmdbID { seenTmdbIds.insert(tmdbId) }
-                for genreId in movie.genreIDs ?? [] { genreCount[genreId, default: 0] += 1 }
-            }
-        }
-
-        // Fallback to library genres if no scores
-        if genreCount.isEmpty {
-            for movie in allMovies {
-                for genreId in movie.genreIDs ?? [] {
-                    genreCount[genreId, default: 0] += 1
-                }
-            }
-        }
-
-        let topGenres = genreCount.sorted { $0.value > $1.value }.prefix(3).map { $0.key }
-        topGenreNames = topGenres.compactMap { genreIdToName[$0] }
-
-        // Use default genres if still empty
-        let finalGenres = topGenres.isEmpty ? [18, 28, 35] : Array(topGenres)
-        if topGenres.isEmpty {
-            topGenreNames = ["Drama", "Action", "Comedy"]
-        }
-
-        do {
-            let client = try TMDbClient()
-            let results: [TMDbItem]
-            if mediaType == "movie" {
-                let response = try await client.discoverByGenres(genreIds: finalGenres)
-                results = response.results
-            } else {
-                let tvGenres = finalGenres.map { movieGenreToTVGenre[$0] ?? $0 }
-                let response = try await client.discoverTVByGenres(genreIds: tvGenres)
-                results = response.results
-            }
-            var filtered = results.filter { !seenTmdbIds.contains($0.id) }
-            filtered.sort { ($0.popularity ?? 0) > ($1.popularity ?? 0) }
-            self.suggestions = Array(filtered.prefix(30))
         } catch { print("Failed to load suggestions: \(error)") }
         isLoading = false
     }
