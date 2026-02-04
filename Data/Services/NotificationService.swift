@@ -21,6 +21,7 @@ final class NotificationService: ObservableObject {
     private var lastFetchTime: Date?
     private var lastFetchFailed: Bool = false
     private var consecutiveFailures: Int = 0
+    private var isFetching: Bool = false
     private let minFetchInterval: TimeInterval = 60 // Minimum 60 seconds between fetches
     private let failedFetchBackoff: TimeInterval = 300 // 5 minutes after failures
 
@@ -50,11 +51,14 @@ final class NotificationService: ObservableObject {
     }
 
     private func performFetch() async {
+        guard !isFetching else { return } // Prevent concurrent fetches
         guard let myId = client.auth.currentUser?.id else {
             print("⚠️ No user ID for notifications")
             return
         }
 
+        isFetching = true
+        defer { isFetching = false }
         lastFetchTime = Date()
         print("🔔 Fetching notifications for user: \(myId)")
 
@@ -95,12 +99,10 @@ final class NotificationService: ObservableObject {
                     print("  📬 [\(index)]: \(notif.type) from \(actorName) - read: \(notif.read)")
                 }
 
-                return // Success, exit loop
-            } catch {
-                print("⚠️ Notification fetch \(name) failed: \(error)")
-                continue // Try next query pattern
+            // Fetch actor profiles for notifications
+            if !response.isEmpty {
+                await enrichNotificationsWithProfiles(&response)
             }
-        }
 
         let recipientQueries: [(String, String)] = [
             ("with recipient join", "*, profiles!notifications_actor_id_fkey(*)"),

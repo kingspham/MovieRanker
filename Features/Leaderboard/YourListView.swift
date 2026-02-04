@@ -297,10 +297,25 @@ struct SavedView: View {
             print("📊 Prediction for \(movie.title): \(Int(score100))")
         }
 
-        await MainActor.run {
-            predictionCache = newCache
-            isPredictionsLoaded = true
+        // Process predictions in small batches with yields to keep UI responsive
+        let batchSize = 10
+        for startIndex in stride(from: 0, to: movies.count, by: batchSize) {
+            let endIndex = min(startIndex + batchSize, movies.count)
+            let batch = Array(movies[startIndex..<endIndex])
+            let predictions = engine.predictBatch(for: batch, in: context, userId: userId)
+
+            for (movieId, pred) in predictions {
+                if let itemId = itemsByMovie[movieId] {
+                    newCache[itemId] = pred.score * 10.0
+                }
+            }
+
+            // Yield between batches so the UI can handle touch events
+            await Task.yield()
         }
+
+        predictionCache = newCache
+        isPredictionsLoaded = true
     }
     
     private func createTMDbItem(from movie: Movie) -> TMDbItem {
