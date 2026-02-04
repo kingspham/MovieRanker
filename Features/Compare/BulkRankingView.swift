@@ -10,6 +10,8 @@ struct BulkRankingView: View {
     
     @Query private var allUserItems: [UserItem]
     @Query private var allScores: [Score]
+    @Query private var allLogs: [LogEntry]
+    @Query private var allMovies: [Movie]
     
     @State private var userId: String = "guest"
     @State private var unrankedItems: [Movie] = []
@@ -217,13 +219,14 @@ struct BulkRankingView: View {
         print("\n🔍 BULK RANKING - Loading unranked items...")
         print("👤 User: \(userId)")
         
-        // Filter UserItems in memory
-        let seenItems = allUserItems.filter { item in
-            item.state == .seen && (item.ownerId == userId || item.ownerId == "guest")
+        // Filter Logs in memory (use logs to avoid ranking duplicates)
+        let seenLogs = allLogs.filter { log in
+            (log.ownerId == userId || log.ownerId == "guest") && log.movie != nil
         }
         
         print("📊 Total UserItems: \(allUserItems.count)")
-        print("📊 Seen items for user: \(seenItems.count)")
+        print("📊 Total Logs: \(allLogs.count)")
+        print("📊 Seen logs for user: \(seenLogs.count)")
         
         // Filter Scores in memory
         let userScores = allScores.filter { score in
@@ -238,24 +241,39 @@ struct BulkRankingView: View {
         
         // Find unranked movies
         var unranked: [Movie] = []
+        var seenKeys = Set<String>()
         
-        for item in seenItems {
-            if let movie = item.movie {
-                let isRanked = rankedMovieIDs.contains(movie.id)
-                
-                if !isRanked {
-                    // Apply media filter
-                    if mediaFilter == "All" || movie.mediaType == mediaFilter {
-                        unranked.append(movie)
-                    }
-                }
+        for log in seenLogs {
+            guard let movie = log.movie else { continue }
+            let isRanked = rankedMovieIDs.contains(movie.id)
+            if isRanked { continue }
+            
+            // Apply media filter
+            if mediaFilter != "All" && movie.mediaType != mediaFilter {
+                continue
             }
+            
+            let dedupeKey: String
+            if let tmdbID = movie.tmdbID {
+                dedupeKey = "tmdb:\(tmdbID)"
+            } else {
+                dedupeKey = "title:\(movie.titleLower)"
+            }
+            
+            if seenKeys.contains(dedupeKey) {
+                continue
+            }
+            
+            seenKeys.insert(dedupeKey)
+            unranked.append(movie)
         }
         
         print("📊 Unranked items found: \(unranked.count)")
         
         // Sort by title (alphabetical) - user can shuffle if they want
-        unranked.sort { $0.title < $1.title }
+        unranked.sort(by: { (lhs: Movie, rhs: Movie) -> Bool in
+            return lhs.title < rhs.title
+        })
         
         self.unrankedItems = unranked
         self.currentIndex = 0
@@ -263,6 +281,24 @@ struct BulkRankingView: View {
         self.isShuffled = false
         
         print("✅ Loading complete\n")
+    }
+
+    private func resolveMovie(from movie: Movie?) -> Movie? {
+        guard let movie else { return nil }
+        if let tmdbID = movie.tmdbID,
+           let canonical = allMovies.first(where: { $0.tmdbID == tmdbID }) {
+            return canonical
+        }
+        let normalizedTitle = movie.titleLower
+        if let canonical = allMovies.first(where: {
+            $0.titleLower == normalizedTitle &&
+            $0.mediaType == movie.mediaType &&
+            ($0.year == nil || movie.year == nil || $0.year == movie.year) &&
+            $0.tmdbID != nil
+        }) {
+            return canonical
+        }
+        return movie
     }
 }
 

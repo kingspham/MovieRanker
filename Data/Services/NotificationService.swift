@@ -62,33 +62,82 @@ final class NotificationService: ObservableObject {
         lastFetchTime = Date()
         print("🔔 Fetching notifications for user: \(myId)")
 
-        do {
-            // Fetch without join (the profiles FK relationship doesn't exist in the schema),
-            // then enrich with actor profiles in a separate query
-            var response: [AppNotification] = try await client
-                .from("notifications")
-                .select("id, user_id, actor_id, type, message, related_id, read, created_at")
-                .eq("user_id", value: myId)
-                .order("created_at", ascending: false)
-                .limit(30)
-                .execute()
-                .value
+        // Try multiple query patterns for robustness
+        let queries: [(String, String, String)] = [
+            ("with foreign key join", "*, profiles!notifications_actor_id_fkey(*)", "user_id"),
+            ("with simple join", "*, profiles(*)", "user_id"),
+            ("without join", "id, user_id, actor_id, type, message, related_id, read, created_at", "user_id")
+        ]
+
+        for (name, selectQuery, userColumn) in queries {
+            do {
+                var response: [AppNotification] = try await client
+                    .from("notifications")
+                    .select(selectQuery)
+                    .eq(userColumn, value: myId)
+                    .order("created_at", ascending: false)
+                    .limit(30)
+                    .execute()
+                    .value
+
+                // If we got notifications but no actor data, fetch profiles separately
+                let missingActors = response.filter { $0.actor == nil }.map { $0.actorId }
+                if !missingActors.isEmpty {
+                    print("🔔 Fetching \(missingActors.count) missing actor profiles...")
+                    await enrichNotificationsWithProfiles(&response)
+                }
+
+                self.notifications = response
+                self.unreadCount = response.filter { !$0.read }.count
+                self.lastFetchFailed = false
+                self.consecutiveFailures = 0
+                print("✅ Fetched \(response.count) notifications \(name) (\(self.unreadCount) unread)")
+
+                // Debug: print first few notifications
+                for (index, notif) in response.prefix(3).enumerated() {
+                    let actorName = notif.actor?.displayName ?? "unknown"
+                    print("  📬 [\(index)]: \(notif.type) from \(actorName) - read: \(notif.read)")
+                }
 
             // Fetch actor profiles for notifications
             if !response.isEmpty {
                 await enrichNotificationsWithProfiles(&response)
             }
 
-            self.notifications = response
-            self.unreadCount = response.filter { !$0.read }.count
-            self.lastFetchFailed = false
-            self.consecutiveFailures = 0
-            print("✅ Fetched \(response.count) notifications (\(self.unreadCount) unread)")
-        } catch {
-            self.lastFetchFailed = true
-            self.consecutiveFailures += 1
-            print("❌ Notification fetch failed (attempt \(consecutiveFailures)): \(error)")
+        let recipientQueries: [(String, String)] = [
+            ("with recipient join", "*, profiles!notifications_actor_id_fkey(*)"),
+            ("without join recipient", "id, recipient_id, actor_id, type, message, related_id, read, created_at")
+        ]
+
+        for (name, selectQuery) in recipientQueries {
+            do {
+                let response: [AppNotification] = try await client
+                    .from("notifications")
+                    .select(selectQuery)
+                    .eq("recipient_id", value: myId)
+                    .order("created_at", ascending: false)
+                    .limit(30)
+                    .execute()
+                    .value
+
+                self.notifications = response
+                self.unreadCount = response.filter { !$0.read }.count
+                self.lastFetchFailed = false
+                self.consecutiveFailures = 0
+                print("✅ Fetched \(response.count) notifications \(name) (\(self.unreadCount) unread)")
+                return
+            } catch {
+                if consecutiveFailures == 0 {
+                    print("⚠️ Notification fetch \(name) failed: \(error.localizedDescription)")
+                }
+                continue
+            }
         }
+
+        // All patterns failed
+        self.lastFetchFailed = true
+        self.consecutiveFailures += 1
+        print("❌ All notification fetch patterns failed (attempt \(consecutiveFailures)) - backing off")
     }
 
     /// Fetch profiles for notifications that don't have actor data
@@ -122,6 +171,7 @@ final class NotificationService: ObservableObject {
     func markAllRead() async {
         guard let myId = client.auth.currentUser?.id else { return }
         _ = try? await client.from("notifications").update(["read": true]).eq("user_id", value: myId).execute()
+        _ = try? await client.from("notifications").update(["read": true]).eq("recipient_id", value: myId).execute()
         unreadCount = 0
     }
     

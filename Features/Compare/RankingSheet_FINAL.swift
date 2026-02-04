@@ -71,13 +71,18 @@ struct RankingSheet: View {
 
             var sameTypeScores: [Score] = []
 
+            let isDocumentary = newMovie.mediaType == "movie" && newMovie.genreIDs.contains(99)
+
             for score in myScores {
                 if score.movieID == newMovie.id { continue }
 
                 if let m = allMovies.first(where: { $0.id == score.movieID }) {
-                    if m.mediaType == newMovie.mediaType {
-                        sameTypeScores.append(score)
+                    guard m.mediaType == newMovie.mediaType else { continue }
+                    if newMovie.mediaType == "movie" {
+                        let opponentIsDoc = m.genreIDs.contains(99)
+                        if opponentIsDoc != isDocumentary { continue }
                     }
+                    sameTypeScores.append(score)
                 }
             }
             

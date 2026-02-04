@@ -119,9 +119,9 @@ struct SavedView: View {
             sorted = items.sorted { $0.createdAt > $1.createdAt }
         case .predicted:
             // Use cached predictions for sorting
-            sorted = items.sorted { (item1, item2) in
-                let pred1 = predictionCache[item1.id] ?? 50.0
-                let pred2 = predictionCache[item2.id] ?? 50.0
+            sorted = watchlistItems.sorted { (item1, item2) in
+                let pred1 = predictionCache[item1.movie?.id ?? item1.id] ?? 50.0
+                let pred2 = predictionCache[item2.movie?.id ?? item2.id] ?? 50.0
                 return pred1 > pred2
             }
         case .title:
@@ -235,7 +235,7 @@ struct SavedView: View {
                                 WatchlistRow(
                                     movie: movie,
                                     userId: userId,
-                                    cachedPredictionScore: predictionCache[item.id]
+                                    cachedPredictionScore: predictionCache[movie.id]
                                 )
                             }
                             .swipeActions(edge: .trailing, allowsFullSwipe: true) {
@@ -288,14 +288,14 @@ struct SavedView: View {
             return
         }
 
-        // Build a mapping from movie ID -> UserItem ID
-        let itemsByMovie = Dictionary(uniqueKeysWithValues: watchlistItems.compactMap { item -> (UUID, UUID)? in
-            guard let movie = item.movie else { return nil }
-            return (movie.id, item.id)
-        })
-
         let engine = LinearPredictionEngine()
         var newCache: [UUID: Double] = [:]
+        for movie in movies {
+            let pred = engine.predict(for: movie, in: context, userId: userId)
+            let score100 = pred.score * 10.0
+            newCache[movie.id] = score100
+            print("📊 Prediction for \(movie.title): \(Int(score100))")
+        }
 
         // Process predictions in small batches with yields to keep UI responsive
         let batchSize = 10
