@@ -275,19 +275,19 @@ struct SearchView: View {
 
         do {
             let client = try TMDbClient()
+            let looksLikeName = queryLooksLikeName(searchQuery)
 
-            // Always do multi-search + books + podcasts
+            // Run multi-search + books + podcasts in parallel
             async let tmdbTask = client.searchMulti(query: query)
             async let booksTask = BooksAPI().searchBooks(query: query)
             async let podcastsTask = PodcastsAPI().search(query: query)
 
-            // Also do a dedicated person search if query looks like a name
-            let looksLikeName = queryLooksLikeName(searchQuery)
-            var dedicatedPersonResults: [TMDbItem] = []
+            // Do a dedicated person search if query looks like a name (runs before awaiting others)
+            let personResults: [TMDbItem]
             if looksLikeName {
                 do {
                     let personPage = try await client.searchPerson(query: searchQuery)
-                    dedicatedPersonResults = personPage.results.map { person in
+                    personResults = personPage.results.map { person in
                         TMDbItem(
                             id: person.id,
                             name: person.displayTitle,
@@ -298,8 +298,11 @@ struct SearchView: View {
                         )
                     }
                 } catch {
-                    print("🔍 Person search error: \(error)")
+                    print("Person search error: \(error)")
+                    personResults = []
                 }
+            } else {
+                personResults = []
             }
 
             let (tmdbPage, bookResults, podcastResults) = try await (tmdbTask, booksTask, podcastsTask)
@@ -310,18 +313,13 @@ struct SearchView: View {
             }
 
             // Merge dedicated person results (dedup by ID)
-            let existingPersonIds = Set(visualResults.filter { $0.mediaType == "person" }.map { $0.id })
-            for person in dedicatedPersonResults {
-                if !existingPersonIds.contains(person.id) {
-                    visualResults.append(person)
+            if !personResults.isEmpty {
+                let existingPersonIds = Set(visualResults.filter { $0.mediaType == "person" }.map { $0.id })
+                for person in personResults {
+                    if !existingPersonIds.contains(person.id) {
+                        visualResults.append(person)
+                    }
                 }
-            }
-
-            // Debug: Log person results
-            let allPersonResults = visualResults.filter { $0.mediaType == "person" }
-            print("🔍 Search '\(searchQuery)': \(allPersonResults.count) person(s) found, \(dedicatedPersonResults.count) from dedicated search")
-            for person in allPersonResults.prefix(3) {
-                print("🔍 Person: \(person.displayTitle) | profile: \(person.profilePath ?? "nil") | pop: \(person.popularity ?? 0)")
             }
 
             // Reorder results: prioritize persons when query looks like a name
