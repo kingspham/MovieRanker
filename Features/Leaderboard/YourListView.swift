@@ -78,11 +78,9 @@ struct SavedView: View {
     @AppStorage("watchlistSortAscending") private var sortAscending: Bool = false // false = descending
     @State private var showRankAll = false
 
-    // Static prediction cache that persists across view recreations (tab switching)
-    private static var _predictionCache: [UUID: Double] = [:]
-    private static var _isPredictionsLoaded = false
-    @State private var predictionCache: [UUID: Double] = YourListView._predictionCache
-    @State private var isPredictionsLoaded = YourListView._isPredictionsLoaded
+    // Prediction cache
+    @State private var predictionCache: [UUID: Double] = [:]
+    @State private var isPredictionsLoaded = false
     @State private var cachedUnrankedCount: Int = 0
 
     var sortOrder: WatchlistSortOption {
@@ -226,7 +224,7 @@ struct SavedView: View {
                         description: Text("Items you save will appear here")
                     )
                 } else {
-                    ForEach(sortedItems) { item in
+                    ForEach(sortedItems, id: \.id) { item in
                         if let movie = item.movie {
                             NavigationLink {
                                 MovieInfoView(
@@ -307,9 +305,6 @@ struct SavedView: View {
         await MainActor.run {
             predictionCache = newCache
             isPredictionsLoaded = true
-            // Persist to static cache so tab switching doesn't trigger reload
-            YourListView._predictionCache = newCache
-            YourListView._isPredictionsLoaded = true
         }
     }
     
