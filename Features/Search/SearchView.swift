@@ -256,7 +256,7 @@ struct SearchView: View {
         }
 
         do {
-            let client = TMDbClient()
+            let client = try TMDbClient()
 
             // Always do multi-search + books + podcasts
             async let tmdbTask = client.searchMulti(query: query)
@@ -265,12 +265,11 @@ struct SearchView: View {
 
             // Also do a dedicated person search if query looks like a name
             let looksLikeName = queryLooksLikeName(searchQuery)
-            let personSearchTask: Task<[TMDbItem], Never> = Task {
-                guard looksLikeName else { return [] }
+            var dedicatedPersonResults: [TMDbItem] = []
+            if looksLikeName {
                 do {
                     let personPage = try await client.searchPerson(query: searchQuery)
-                    // Person search results don't include media_type, so create new items with it set
-                    return personPage.results.map { person in
+                    dedicatedPersonResults = personPage.results.map { person in
                         TMDbItem(
                             id: person.id,
                             name: person.displayTitle,
@@ -282,12 +281,10 @@ struct SearchView: View {
                     }
                 } catch {
                     print("🔍 Person search error: \(error)")
-                    return []
                 }
             }
 
             let (tmdbPage, bookResults, podcastResults) = try await (tmdbTask, booksTask, podcastsTask)
-            let dedicatedPersonResults = await personSearchTask.value
 
             // Include movie, tv, AND person results from multi-search
             var visualResults = tmdbPage.results.filter {
