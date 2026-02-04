@@ -288,24 +288,34 @@ struct SavedView: View {
             return
         }
 
-        // Use batch prediction for efficiency (fetches data once instead of per-movie)
+        // Build a mapping from movie ID -> UserItem ID
+        let itemsByMovie = Dictionary(uniqueKeysWithValues: watchlistItems.compactMap { item -> (UUID, UUID)? in
+            guard let movie = item.movie else { return nil }
+            return (movie.id, item.id)
+        })
+
         let engine = LinearPredictionEngine()
-        let predictions = engine.predictBatch(for: movies, in: context, userId: userId)
-
-        // Map movie IDs to UserItem IDs for cache
         var newCache: [UUID: Double] = [:]
-        for item in watchlistItems {
-            guard let movie = item.movie,
-                  let pred = predictions[movie.id] else { continue }
-            // Convert to 0-100 scale (prediction score is 0-10)
-            let score100 = pred.score * 10.0
-            newCache[item.id] = score100
+
+        // Process predictions in small batches with yields to keep UI responsive
+        let batchSize = 10
+        for startIndex in stride(from: 0, to: movies.count, by: batchSize) {
+            let endIndex = min(startIndex + batchSize, movies.count)
+            let batch = Array(movies[startIndex..<endIndex])
+            let predictions = engine.predictBatch(for: batch, in: context, userId: userId)
+
+            for (movieId, pred) in predictions {
+                if let itemId = itemsByMovie[movieId] {
+                    newCache[itemId] = pred.score * 10.0
+                }
+            }
+
+            // Yield between batches so the UI can handle touch events
+            await Task.yield()
         }
 
-        await MainActor.run {
-            predictionCache = newCache
-            isPredictionsLoaded = true
-        }
+        predictionCache = newCache
+        isPredictionsLoaded = true
     }
     
     private func createTMDbItem(from movie: Movie) -> TMDbItem {

@@ -27,6 +27,10 @@ class UserItemService {
     static let shared = UserItemService()
     private init() {}
 
+    /// Track recently deleted item IDs so sync doesn't re-add them
+    private var recentlyDeletedItemIDs: Set<UUID> = []
+    private var recentlyDeletedMovieKeys: Set<String> = [] // "movieId|state"
+
     // MARK: - Upload to Cloud
 
     /// Upload a single UserItem to cloud (watchlist, seen, favorite)
@@ -67,6 +71,7 @@ class UserItemService {
 
     /// Delete a user item from cloud so it doesn't get re-synced
     func deleteUserItemFromCloud(itemId: UUID) async {
+        recentlyDeletedItemIDs.insert(itemId)
         guard let client = AuthService.shared.client else { return }
 
         do {
@@ -82,6 +87,7 @@ class UserItemService {
 
     /// Delete a user item by movie_id and state from cloud
     func deleteUserItemFromCloud(movieId: UUID, state: String) async {
+        recentlyDeletedMovieKeys.insert("\(movieId)|\(state)")
         guard let client = AuthService.shared.client,
               let user = try? await client.auth.session.user else { return }
 
@@ -148,6 +154,17 @@ class UserItemService {
         })
 
         for cloudItem in cloudItems {
+            // Skip items that were recently deleted locally
+            if recentlyDeletedItemIDs.contains(cloudItem.id) {
+                skippedCount += 1
+                continue
+            }
+            let movieKey = "\(cloudItem.movie_id)|\(cloudItem.state)"
+            if recentlyDeletedMovieKeys.contains(movieKey) {
+                skippedCount += 1
+                continue
+            }
+
             // Check if we already have this exact item locally (by ID)
             if localItemIDs.contains(cloudItem.id) {
                 skippedCount += 1
