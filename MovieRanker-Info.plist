@@ -7,8 +7,19 @@
 	<key>SUPABASE_URL</key>
 	<string>https://ztsuzhkjotmevpcctwly.supabase.co</string>
 	<key>OMDB_API_KEY</key>
-	<string>0385116fdfd5e0cc40a55906c2a762df</string>
+	<string>c7955ee3</string>
     <key>TMDB_API_KEY</key>
-    <string>0385116fdfd5e0cc40a55906c2a762df</string>
+    <string>eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiI2OTBiODg1Yjk5MTAyNjBmYjk0MWE2NzE2YTg5MGI3ZCIsIm5iZiI6MTc2MTAxMTcxNC45NjcsInN1YiI6IjY4ZjZlODAyY2NmMDliZTY4MzEwMjE1NSIsInNjb3BlcyI6WyJhcGlfcmVhZCJdLCJ2ZXJzaW9uIjoxfQ.ZvaOujU01N1zDXO4WAs0WqtNiGEM0SdejzzKjvjUzjE</string>
+    <key>LSApplicationQueriesSchemes</key>
+    <array>
+        <string>nflx</string>
+        <string>spotify</string>
+        <string>disneyplus</string>
+        <string>hulu</string>
+        <string>max</string>
+        <string>primevideo</string>
+        <string>youtube</string>
+        <string>videos</string>
+    </array>
 </dict>
 </plist>

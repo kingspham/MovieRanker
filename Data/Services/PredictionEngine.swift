@@ -213,7 +213,7 @@ final class LinearPredictionEngine: PredictionEngine {
         }
 
         // METHOD 13: Strong negative signal check (override if user consistently dislikes similar content)
-        let negativeSignal = checkNegativeSignals(for: movie, attributeScores: attributeScores)
+        _ = checkNegativeSignals(for: movie, attributeScores: attributeScores)
 
         // METHOD 14: Direct similarity to highly-rated movies (VERY STRONG - user's actual preferences)
         let similarityBoost = calculateDirectSimilarity(
@@ -277,19 +277,11 @@ final class LinearPredictionEngine: PredictionEngine {
         let dataPoints = relevantScores.count + (genrePrediction != nil ? 1 : 0) + (talentPrediction != nil ? 1 : 0)
         let confidence = min(Double(dataPoints) / 8.0, 0.9)
 
-        // Apply negative signal penalty if strong dislike detected
-        if let neg = negativeSignal {
-            // Pull score down towards the dislike average with strength based on evidence
-            let pullStrength = min(neg.confidence, 0.5) // Max 50% pull
-            finalScore = finalScore * (1 - pullStrength) + neg.score * pullStrength
-            if !topReasons.contains(neg.reason) {
-                topReasons.append(neg.reason)
-            }
-            debugInfo += " | Negative: \(neg.reason)"
-        }
-
-        // Clamp to valid range
-        finalScore = min(max(finalScore, 1.0), 10.0)
+        finalScore = applyUserSpread(
+            score: finalScore,
+            baselineScores: relevantScores,
+            dataPoints: dataPoints
+        )
 
         return PredictionExplanation(
             score: finalScore,
@@ -435,7 +427,11 @@ final class LinearPredictionEngine: PredictionEngine {
         }
 
         let confidence = min(Double(sameTypeScores.count) / 10.0, 0.9)
-        finalScore = min(max(finalScore, 1.0), 10.0)
+        finalScore = applyUserSpread(
+            score: finalScore,
+            baselineScores: sameTypeScores,
+            dataPoints: sameTypeScores.count
+        )
 
         return PredictionExplanation(
             score: finalScore,
@@ -960,6 +956,28 @@ final class LinearPredictionEngine: PredictionEngine {
         }
 
         return scores.reduce(0, +) / Double(scores.count)
+    }
+
+    private func applyUserSpread(score: Double, baselineScores: [Score], dataPoints: Int) -> Double {
+        guard dataPoints >= 6 else { return min(max(score, 1.0), 10.0) }
+        let ratings = baselineScores.map { Double($0.display100) / 10.0 }
+        guard !ratings.isEmpty else { return min(max(score, 1.0), 10.0) }
+
+        let userAvg = ratings.reduce(0, +) / Double(ratings.count)
+        let variance = ratings.map { pow($0 - userAvg, 2) }.reduce(0, +) / Double(ratings.count)
+        let stdDev = sqrt(variance)
+
+        let multiplier: Double
+        if stdDev < 1.1 {
+            multiplier = 1.7
+        } else if stdDev < 1.6 {
+            multiplier = 1.4
+        } else {
+            multiplier = 1.2
+        }
+
+        let adjusted = userAvg + (score - userAvg) * multiplier
+        return min(max(adjusted, 1.0), 10.0)
     }
 
     private func fetchMovie(id: UUID, context: ModelContext) -> Movie? {
