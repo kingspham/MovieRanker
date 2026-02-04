@@ -63,6 +63,41 @@ class UserItemService {
         }
     }
 
+    // MARK: - Delete from Cloud
+
+    /// Delete a user item from cloud so it doesn't get re-synced
+    func deleteUserItemFromCloud(itemId: UUID) async {
+        guard let client = AuthService.shared.client else { return }
+
+        do {
+            try await client.from("user_items")
+                .delete()
+                .eq("id", value: itemId.uuidString)
+                .execute()
+            print("✅ Deleted user item from cloud: \(itemId)")
+        } catch {
+            print("❌ Cloud delete error: \(error)")
+        }
+    }
+
+    /// Delete a user item by movie_id and state from cloud
+    func deleteUserItemFromCloud(movieId: UUID, state: String) async {
+        guard let client = AuthService.shared.client,
+              let user = try? await client.auth.session.user else { return }
+
+        do {
+            try await client.from("user_items")
+                .delete()
+                .eq("user_id", value: user.id.uuidString)
+                .eq("movie_id", value: movieId.uuidString)
+                .eq("state", value: state)
+                .execute()
+            print("✅ Deleted user item from cloud: movie=\(movieId) state=\(state)")
+        } catch {
+            print("❌ Cloud delete error: \(error)")
+        }
+    }
+
     // MARK: - Sync from Cloud
 
     /// Fetch all user items from cloud

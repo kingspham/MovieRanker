@@ -47,24 +47,33 @@ struct WatchHistoryView: View {
             (searchText.isEmpty || log.movie?.title.localizedCaseInsensitiveContains(searchText) == true)
         }
 
+        // Deduplicate: keep only the most recent log per movie
+        var seenMovieIds = Set<UUID>()
+        let sortedByDate = filtered.sorted { ($0.watchedOn ?? .distantPast) > ($1.watchedOn ?? .distantPast) }
+        let deduped = sortedByDate.filter { log in
+            guard let movieId = log.movie?.id else { return true }
+            return seenMovieIds.insert(movieId).inserted
+        }
+
         // Use precomputed lookup for O(1) score access
         let lookup = scoreLookup
+        let filtered2 = deduped
 
         // Sort based on selection (with ascending/descending support)
         let sorted: [LogEntry]
         switch sortOrder {
         case .dateWatched:
-            sorted = filtered.sorted { ($0.watchedOn ?? Date.distantPast) > ($1.watchedOn ?? Date.distantPast) }
+            sorted = filtered2.sorted { ($0.watchedOn ?? Date.distantPast) > ($1.watchedOn ?? Date.distantPast) }
         case .score:
-            sorted = filtered.sorted { (log1, log2) in
+            sorted = filtered2.sorted { (log1, log2) in
                 let score1 = log1.movie.flatMap { lookup[$0.id] } ?? 0
                 let score2 = log2.movie.flatMap { lookup[$0.id] } ?? 0
                 return score1 > score2
             }
         case .title:
-            sorted = filtered.sorted { ($0.movie?.title ?? "") < ($1.movie?.title ?? "") }
+            sorted = filtered2.sorted { ($0.movie?.title ?? "") < ($1.movie?.title ?? "") }
         case .year:
-            sorted = filtered.sorted { ($0.movie?.year ?? 0) > ($1.movie?.year ?? 0) }
+            sorted = filtered2.sorted { ($0.movie?.year ?? 0) > ($1.movie?.year ?? 0) }
         }
         return sortAscending ? sorted.reversed() : sorted
     }

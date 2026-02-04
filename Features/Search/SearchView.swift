@@ -661,65 +661,15 @@ struct SearchView: View {
         else { MovieInfoView(tmdb: item, mediaType: item.mediaType ?? "movie").modelContext(context) }
     }
 
-    // MARK: - Discovery Section Model (identifiable to prevent SwiftUI duplication)
-    enum DiscoverySectionType: String, CaseIterable {
-        case suggestedMovies, suggestedShows, trending, inTheaters, streaming, books, podcasts
-    }
-
-    struct DiscoverySectionItem: Identifiable {
-        let type: DiscoverySectionType
-        var id: String { type.rawValue }
-    }
-
-    private var visibleDiscoverySections: [DiscoverySectionItem] {
-        var sections: [DiscoverySectionItem] = []
-        if !suggestedMovies.isEmpty { sections.append(DiscoverySectionItem(type: .suggestedMovies)) }
-        if !suggestedShows.isEmpty { sections.append(DiscoverySectionItem(type: .suggestedShows)) }
-        if !trending.isEmpty { sections.append(DiscoverySectionItem(type: .trending)) }
-        if !inTheaters.isEmpty { sections.append(DiscoverySectionItem(type: .inTheaters)) }
-        if !streaming.isEmpty { sections.append(DiscoverySectionItem(type: .streaming)) }
-        if !suggestedBooks.isEmpty { sections.append(DiscoverySectionItem(type: .books)) }
-        if !suggestedPodcasts.isEmpty { sections.append(DiscoverySectionItem(type: .podcasts)) }
-        return sections
-    }
-
-    private func itemsForSection(_ type: DiscoverySectionType) -> [TMDbItem] {
-        switch type {
-        case .suggestedMovies: return suggestedMovies
-        case .suggestedShows: return suggestedShows
-        case .trending: return trending
-        case .inTheaters: return inTheaters
-        case .streaming: return streaming
-        case .books: return suggestedBooks
-        case .podcasts: return suggestedPodcasts
-        }
-    }
-
-    private func titleForSection(_ type: DiscoverySectionType) -> String {
-        switch type {
-        case .suggestedMovies: return "Suggested Movies"
-        case .suggestedShows: return "Suggested Shows"
-        case .trending: return "Trending Today"
-        case .inTheaters: return "In Theaters"
-        case .streaming: return "Streaming Now"
-        case .books: return "Popular Books"
-        case .podcasts: return "Top Podcasts"
-        }
-    }
-
-    @ViewBuilder
-    private func discoverySectionView(for type: DiscoverySectionType) -> some View {
-        Section {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 12) {
-                    ForEach(itemsForSection(type), id: \.id) { item in
-                        DiscoveryCard(item: item)
-                    }
+    // Simple horizontal scroll used by discovery sections
+    private func discoveryScroll(items: [TMDbItem]) -> some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 12) {
+                ForEach(items, id: \.id) { item in
+                    DiscoveryCard(item: item)
                 }
-                .padding(.horizontal, 4)
             }
-        } header: {
-            Text(titleForSection(type))
+            .padding(.horizontal, 4)
         }
     }
 
