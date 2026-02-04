@@ -290,28 +290,16 @@ struct SavedView: View {
 
         let engine = LinearPredictionEngine()
         var newCache: [UUID: Double] = [:]
-        for movie in movies {
+        for (index, movie) in movies.enumerated() {
             let pred = engine.predict(for: movie, in: context, userId: userId)
             let score100 = pred.score * 10.0
             newCache[movie.id] = score100
             print("📊 Prediction for \(movie.title): \(Int(score100))")
-        }
 
-        // Process predictions in small batches with yields to keep UI responsive
-        let batchSize = 10
-        for startIndex in stride(from: 0, to: movies.count, by: batchSize) {
-            let endIndex = min(startIndex + batchSize, movies.count)
-            let batch = Array(movies[startIndex..<endIndex])
-            let predictions = engine.predictBatch(for: batch, in: context, userId: userId)
-
-            for (movieId, pred) in predictions {
-                if let itemId = itemsByMovie[movieId] {
-                    newCache[itemId] = pred.score * 10.0
-                }
+            // Yield every 10 movies so the UI can handle touch events
+            if index % 10 == 9 {
+                await Task.yield()
             }
-
-            // Yield between batches so the UI can handle touch events
-            await Task.yield()
         }
 
         predictionCache = newCache
