@@ -78,9 +78,11 @@ struct SavedView: View {
     @AppStorage("watchlistSortAscending") private var sortAscending: Bool = false // false = descending
     @State private var showRankAll = false
 
-    // Cached predictions to avoid recomputing on every render
-    @State private var predictionCache: [UUID: Double] = [:]
-    @State private var isPredictionsLoaded = false
+    // Static prediction cache that persists across view recreations (tab switching)
+    private static var _predictionCache: [UUID: Double] = [:]
+    private static var _isPredictionsLoaded = false
+    @State private var predictionCache: [UUID: Double] = YourListView._predictionCache
+    @State private var isPredictionsLoaded = YourListView._isPredictionsLoaded
     @State private var cachedUnrankedCount: Int = 0
 
     var sortOrder: WatchlistSortOption {
@@ -240,8 +242,18 @@ struct SavedView: View {
                             }
                             .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                                 Button(role: .destructive) {
+                                    let itemId = item.id
+                                    let movieId = item.movie?.id
+                                    let state = item.state.rawValue
                                     context.delete(item)
                                     try? context.save()
+                                    // Also delete from cloud so it doesn't get re-synced
+                                    Task {
+                                        if let movieId = movieId {
+                                            await UserItemService.shared.deleteUserItemFromCloud(movieId: movieId, state: state)
+                                        }
+                                        await UserItemService.shared.deleteUserItemFromCloud(itemId: itemId)
+                                    }
                                 } label: {
                                     Label("Remove", systemImage: "trash")
                                 }
@@ -295,6 +307,9 @@ struct SavedView: View {
         await MainActor.run {
             predictionCache = newCache
             isPredictionsLoaded = true
+            // Persist to static cache so tab switching doesn't trigger reload
+            YourListView._predictionCache = newCache
+            YourListView._isPredictionsLoaded = true
         }
     }
     
