@@ -259,12 +259,8 @@ struct SavedView: View {
         .task {
             userId = AuthService.shared.currentUserId() ?? "guest"
             updateUnrankedCount()
-            // Don't block page load - predictions load lazily when needed
-        }
-        .onChange(of: sortOrder) { _, newValue in
-            if newValue == .predicted && !isPredictionsLoaded {
-                Task { await loadPredictions() }
-            }
+            // Load predictions in background so scores always show
+            await loadPredictions()
         }
         .onChange(of: allUserItems.count) { _, _ in
             // Update unranked count when items change
@@ -348,7 +344,7 @@ struct WatchlistRow: View {
                     .font(.headline)
                     .lineLimit(2)
 
-                HStack(spacing: 8) {
+                HStack(spacing: 6) {
                     if let year = movie.year {
                         Text(String(year))
                             .font(.caption)
@@ -362,8 +358,11 @@ struct WatchlistRow: View {
                         .background(Color.blue.opacity(0.1))
                         .foregroundColor(.blue)
                         .cornerRadius(4)
+                }
 
-                    // Predicted score (uses cached value from parent)
+                // Ratings row: predicted + external scores
+                HStack(spacing: 8) {
+                    // Predicted score
                     if let predScore = cachedPredictionScore {
                         HStack(spacing: 2) {
                             Image(systemName: "wand.and.stars")
@@ -373,6 +372,42 @@ struct WatchlistRow: View {
                                 .fontWeight(.medium)
                         }
                         .foregroundStyle(.purple)
+                    }
+
+                    // IMDb
+                    if let imdb = movie.imdbRating, imdb != "N/A", !imdb.isEmpty {
+                        HStack(spacing: 2) {
+                            Text("IMDb")
+                                .font(.system(size: 8, weight: .bold))
+                            Text(imdb)
+                                .font(.caption2)
+                                .fontWeight(.medium)
+                        }
+                        .foregroundStyle(.yellow.opacity(0.9))
+                    }
+
+                    // RT
+                    if let rt = movie.rottenTomatoesRating, rt != "N/A", !rt.isEmpty {
+                        HStack(spacing: 2) {
+                            Text("RT")
+                                .font(.system(size: 8, weight: .bold))
+                            Text(rt)
+                                .font(.caption2)
+                                .fontWeight(.medium)
+                        }
+                        .foregroundStyle(.red)
+                    }
+
+                    // Metacritic
+                    if let meta = movie.metaScore, meta != "N/A", !meta.isEmpty {
+                        HStack(spacing: 2) {
+                            Text("MC")
+                                .font(.system(size: 8, weight: .bold))
+                            Text(meta)
+                                .font(.caption2)
+                                .fontWeight(.medium)
+                        }
+                        .foregroundStyle(.green)
                     }
                 }
             }
