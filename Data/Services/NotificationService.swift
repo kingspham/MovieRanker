@@ -62,28 +62,22 @@ final class NotificationService: ObservableObject {
         lastFetchTime = Date()
         print("🔔 Fetching notifications for user: \(myId)")
 
-        // Try multiple query patterns for robustness
-        let queries: [(String, String, String)] = [
-            ("with foreign key join", "*, profiles!notifications_actor_id_fkey(*)", "user_id"),
-            ("with simple join", "*, profiles(*)", "user_id"),
-            ("without join", "id, user_id, actor_id, type, message, related_id, read, created_at", "user_id")
-        ]
+        // Try user_id column first, then recipient_id as fallback
+        let columnOptions = ["user_id", "recipient_id"]
 
-        for (name, selectQuery, userColumn) in queries {
+        for userColumn in columnOptions {
             do {
                 var response: [AppNotification] = try await client
                     .from("notifications")
-                    .select(selectQuery)
+                    .select("id, user_id, actor_id, type, message, related_id, read, created_at")
                     .eq(userColumn, value: myId)
                     .order("created_at", ascending: false)
                     .limit(30)
                     .execute()
                     .value
 
-                // If we got notifications but no actor data, fetch profiles separately
-                let missingActors = response.filter { $0.actor == nil }.map { $0.actorId }
-                if !missingActors.isEmpty {
-                    print("🔔 Fetching \(missingActors.count) missing actor profiles...")
+                // Fetch actor profiles separately (FK join doesn't exist in schema)
+                if !response.isEmpty {
                     await enrichNotificationsWithProfiles(&response)
                 }
 
@@ -91,46 +85,13 @@ final class NotificationService: ObservableObject {
                 self.unreadCount = response.filter { !$0.read }.count
                 self.lastFetchFailed = false
                 self.consecutiveFailures = 0
-                print("✅ Fetched \(response.count) notifications \(name) (\(self.unreadCount) unread)")
-
-                // Debug: print first few notifications
-                for (index, notif) in response.prefix(3).enumerated() {
-                    let actorName = notif.actor?.displayName ?? "unknown"
-                    print("  📬 [\(index)]: \(notif.type) from \(actorName) - read: \(notif.read)")
-                }
-
-            // Fetch actor profiles for notifications
-            if !response.isEmpty {
-                await enrichNotificationsWithProfiles(&response)
-            }
-
-        let recipientQueries: [(String, String)] = [
-            ("with recipient join", "*, profiles!notifications_actor_id_fkey(*)"),
-            ("without join recipient", "id, recipient_id, actor_id, type, message, related_id, read, created_at")
-        ]
-
-        for (name, selectQuery) in recipientQueries {
-            do {
-                let response: [AppNotification] = try await client
-                    .from("notifications")
-                    .select(selectQuery)
-                    .eq("recipient_id", value: myId)
-                    .order("created_at", ascending: false)
-                    .limit(30)
-                    .execute()
-                    .value
-
-                self.notifications = response
-                self.unreadCount = response.filter { !$0.read }.count
-                self.lastFetchFailed = false
-                self.consecutiveFailures = 0
-                print("✅ Fetched \(response.count) notifications \(name) (\(self.unreadCount) unread)")
-                return
+                print("✅ Fetched \(response.count) notifications via \(userColumn) (\(self.unreadCount) unread)")
+                return // Success, stop trying
             } catch {
                 if consecutiveFailures == 0 {
-                    print("⚠️ Notification fetch \(name) failed: \(error.localizedDescription)")
+                    print("⚠️ Notification fetch via \(userColumn) failed: \(error.localizedDescription)")
                 }
-                continue
+                continue // Try next column
             }
         }
 
