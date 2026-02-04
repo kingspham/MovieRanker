@@ -32,6 +32,16 @@ struct LeaderboardView: View {
     enum MediaTypeFilter: String, CaseIterable, Identifiable {
         case all = "All"; case movies = "Movies"; case docs = "Docs"; case shows = "Shows"; case books = "Books"; case podcasts = "Podcasts"
         var id: String { rawValue }
+        var displayName: String {
+            switch self {
+            case .all: return L10n.all
+            case .movies: return L10n.movies
+            case .docs: return L10n.isSpanish ? "Docs" : "Docs"
+            case .shows: return L10n.shows
+            case .books: return L10n.books
+            case .podcasts: return L10n.podcasts
+            }
+        }
     }
 
     // Documentary genre ID in TMDb
@@ -71,7 +81,7 @@ struct LeaderboardView: View {
                     }
                 } else {
                     // NORMAL LEADERBOARD
-                    Picker("", selection: $filter) { ForEach(MediaTypeFilter.allCases) { f in Text(f.rawValue).tag(f) } }.pickerStyle(.segmented).padding()
+                    Picker("", selection: $filter) { ForEach(MediaTypeFilter.allCases) { f in Text(f.displayName).tag(f) } }.pickerStyle(.segmented).padding()
                     
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 12) {

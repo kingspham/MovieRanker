@@ -150,21 +150,20 @@ private struct AppMainView: View {
     var body: some View {
         TabView {
             FeedView()
-                .tabItem { Label("Activity", systemImage: "bubble.left.and.bubble.right.fill") }
+                .tabItem { Label(L10n.activity, systemImage: "bubble.left.and.bubble.right.fill") }
                 .badge(notifService.unreadCount > 0 ? notifService.unreadCount : 0)
 
             SearchView()
-                .tabItem { Label("Explore", systemImage: "magnifyingglass") }
+                .tabItem { Label(L10n.explore, systemImage: "magnifyingglass") }
 
-            // MOVED: Leaderboard now in main tab bar
             LeaderboardView()
-                .tabItem { Label("Rankings", systemImage: "trophy.fill") }
+                .tabItem { Label(L10n.rankings, systemImage: "trophy.fill") }
 
             YourListView()
-                .tabItem { Label("Library", systemImage: "books.vertical.fill") }
+                .tabItem { Label(L10n.library, systemImage: "books.vertical.fill") }
 
             ProfileView()
-                .tabItem { Label("Profile", systemImage: "person.crop.circle") }
+                .tabItem { Label(L10n.profile, systemImage: "person.crop.circle") }
         }
         .task {
             await notifService.fetchNotifications()
