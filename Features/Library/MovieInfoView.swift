@@ -45,6 +45,7 @@ struct MovieInfoView: View {
         case log(Movie, LogEntry?)
         case ranking(Movie)
         case showtimes(String) // Movie title for showtimes lookup
+        case watchWith(Movie)  // Watch With friend comparison
         var id: String {
             switch self {
             case .browser: return "browser"
@@ -52,6 +53,7 @@ struct MovieInfoView: View {
             case .log: return "log"
             case .ranking: return "ranking"
             case .showtimes: return "showtimes"
+            case .watchWith: return "watchWith"
             }
         }
         static func == (lhs: ActiveSheet, rhs: ActiveSheet) -> Bool {
@@ -104,6 +106,29 @@ struct MovieInfoView: View {
                     onAddToList: { list in Task { await addToList(list) } },
                     onCreateList: { showCreateListAlert = true }
                 )
+
+                // Watch With a Friend button
+                if userId != "guest" {
+                    Button {
+                        if let m = movie { activeSheet = .watchWith(m) }
+                    } label: {
+                        HStack(spacing: 8) {
+                            Image(systemName: "person.2.fill")
+                                .foregroundStyle(.purple)
+                            Text(L10n.watchWith)
+                                .fontWeight(.semibold)
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        .padding()
+                        .background(Color.purple.opacity(0.08))
+                        .cornerRadius(12)
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.horizontal)
+                }
 
                 if myLog != nil {
                     Button {
@@ -203,6 +228,14 @@ struct MovieInfoView: View {
                 ))
             case .ranking(let m): RankingSheet(newMovie: m)
             case .showtimes(let title): ShowtimesSheet(movieTitle: title)
+            case .watchWith(let m):
+                WatchWithSheet(
+                    movie: m,
+                    tmdb: tmdb,
+                    myScoreValue: myScoreValue,
+                    myPrediction: prediction,
+                    userId: userId
+                )
             }
         }
         .alert("Create List", isPresented: $showCreateListAlert) {

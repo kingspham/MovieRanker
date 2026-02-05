@@ -150,4 +150,22 @@ struct L10n {
     static var cast: String { isSpanish ? "Reparto" : "Cast" }
     static var similarMovies: String { isSpanish ? "Películas Similares" : "Similar Movies" }
     static var whereToWatch: String { isSpanish ? "Dónde Ver" : "Where to Watch" }
+
+    // MARK: - Watch With
+    static var watchWith: String { isSpanish ? "Ver Con Amigo" : "Watch With a Friend" }
+    static var pickAFriend: String { isSpanish ? "Elige un amigo" : "Pick a Friend" }
+    static var noFriendsYet: String { isSpanish ? "Sin Amigos" : "No Friends Yet" }
+    static var noFriendsDescription: String { isSpanish ? "Sigue a alguien para comparar puntuaciones predichas" : "Follow someone to compare predicted scores" }
+    static var calculatingPrediction: String { isSpanish ? "Calculando predicción..." : "Calculating prediction..." }
+    static var you: String { isSpanish ? "Tú" : "You" }
+    static var whyThisScore: String { isSpanish ? "¿Por qué esta puntuación?" : "Why this score?" }
+    static var chooseDifferentFriend: String { isSpanish ? "Elegir otro amigo" : "Choose Different Friend" }
+    static var greatPick: String { isSpanish ? "¡Gran elección para ambos!" : "Great pick for both of you!" }
+    static var solidChoice: String { isSpanish ? "Buena opción" : "Solid choice" }
+    static var mightDisagree: String { isSpanish ? "Podrían no estar de acuerdo" : "You might disagree on this one" }
+    static var maybeSkip: String { isSpanish ? "Quizás omitir esta" : "Maybe skip this one" }
+    static var couldWork: String { isSpanish ? "Podría funcionar" : "Could work" }
+    static var combinedScore: String { isSpanish ? "Puntuación combinada" : "Combined score" }
+    static var theirActualScore: String { isSpanish ? "Su puntuación real" : "Their actual score" }
+    static var predicted: String { isSpanish ? "predicción" : "predicted" }
 }
