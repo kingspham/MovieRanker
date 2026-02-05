@@ -102,6 +102,29 @@ class ScoreService: ObservableObject {
         }
     }
     
+    /// Fetch scores for a specific user (for Watch With friend predictions)
+    func fetchScoresForUser(userId: UUID) async -> [ScoreDTO] {
+        guard let client = AuthService.shared.client else {
+            print("❌ No auth client for fetching friend scores")
+            return []
+        }
+
+        do {
+            let response: [ScoreDTO] = try await client
+                .from("scores")
+                .select()
+                .eq("user_id", value: userId)
+                .order("display_100", ascending: false)
+                .execute()
+                .value
+            print("✅ Fetched \(response.count) scores for user \(userId)")
+            return response
+        } catch {
+            print("❌ Error fetching user scores: \(error)")
+            return []
+        }
+    }
+
     // Fetch all user's scores from cloud (for initial sync or pulling to new device)
     func fetchAllScores() async -> [ScoreDTO] {
         guard let client = AuthService.shared.client,
