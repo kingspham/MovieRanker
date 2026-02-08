@@ -604,7 +604,18 @@ private struct HeroHeaderView: View {
                         .foregroundStyle(.secondary)
                 }
                 if let y = tmdb.year {
-                    Text(tmdb.mediaType == "tv" ? "TV Series • \(y)" : String(y))
+                    // Build year/runtime line
+                    var infoLine = tmdb.mediaType == "tv" ? "TV Series • \(y)" : String(y)
+                    if let runtime = movie?.runtime, runtime > 0 {
+                        let hours = runtime / 60
+                        let mins = runtime % 60
+                        if hours > 0 {
+                            infoLine += " • \(hours)h \(mins)m"
+                        } else {
+                            infoLine += " • \(mins)m"
+                        }
+                    }
+                    Text(infoLine)
                         .foregroundStyle(.secondary)
                         .font(.subheadline)
                 }

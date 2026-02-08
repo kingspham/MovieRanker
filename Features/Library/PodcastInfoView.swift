@@ -16,7 +16,8 @@ struct PodcastInfoView: View {
     @State private var browserURL: URL?
     @State private var prediction: PredictionExplanation?
     @Query private var allScores: [Score]
-    
+    @Query private var allUserItems: [UserItem]
+
     var hasRanked: Bool {
         guard let m = movie else { return false }
         return allScores.contains(where: { $0.movieID == m.id && ($0.ownerId == userId || $0.ownerId == "guest") })
@@ -25,6 +26,11 @@ struct PodcastInfoView: View {
     var myScoreValue: Int? {
         guard let m = movie else { return nil }
         return allScores.first(where: { $0.movieID == m.id && ($0.ownerId == userId || $0.ownerId == "guest") })?.display100
+    }
+
+    var isOnWatchlist: Bool {
+        guard let m = movie else { return false }
+        return allUserItems.contains(where: { $0.movie?.id == m.id && $0.state == .watchlist && ($0.ownerId == userId || $0.ownerId == "guest") })
     }
     
     var body: some View {
@@ -49,7 +55,11 @@ struct PodcastInfoView: View {
                 HStack {
                     if hasRanked { Button { handleReRank() } label: { Text("Re-Rank").fontWeight(.bold).frame(maxWidth: .infinity).padding().background(Color.orange).foregroundColor(.white).cornerRadius(12) } }
                     else { Button { showLogSheet = true } label: { Text("Mark as Listened").fontWeight(.bold).frame(maxWidth: .infinity).padding().background(Color.accentColor).foregroundColor(.white).cornerRadius(12) } }
-                    Button { savePodcast(as: .watchlist) } label: { Text("Want to Listen").fontWeight(.bold).frame(maxWidth: .infinity).padding().background(Color.gray.opacity(0.15)).foregroundColor(.primary).cornerRadius(12) }
+                    if isOnWatchlist {
+                        Button { removeFromWatchlist() } label: { HStack { Image(systemName: "checkmark"); Text("On List") }.fontWeight(.bold).frame(maxWidth: .infinity).padding().background(Color.green.opacity(0.15)).foregroundColor(.green).cornerRadius(12) }
+                    } else {
+                        Button { savePodcast(as: .watchlist) } label: { Text("Want to Listen").fontWeight(.bold).frame(maxWidth: .infinity).padding().background(Color.gray.opacity(0.15)).foregroundColor(.primary).cornerRadius(12) }
+                    }
                 }.padding(.horizontal)
                 
                 // DESCRIPTION FIX
@@ -97,6 +107,7 @@ struct PodcastInfoView: View {
     // (Keep handleReRank / savePodcast)
     private func handleReRank() { guard let m = movie else { return }; if let score = allScores.first(where: { $0.movieID == m.id && ($0.ownerId == userId || $0.ownerId == "guest") }) { context.delete(score); try? context.save() }; showRankingSheet = true }
     private func savePodcast(as state: UserItem.State) { guard let m = movie else { return }; let targetID = m.tmdbID; let allItems = (try? context.fetch(FetchDescriptor<UserItem>())) ?? []; if let existingItem = allItems.first(where: { $0.movie?.tmdbID == targetID }) { existingItem.state = state } else { context.insert(UserItem(movie: m, state: state, ownerId: userId)) }; try? context.save(); showSuccess = true; DispatchQueue.main.asyncAfter(deadline: .now() + 2) { showSuccess = false } }
+    private func removeFromWatchlist() { guard let m = movie else { return }; if let existingItem = allUserItems.first(where: { $0.movie?.id == m.id && $0.state == .watchlist && ($0.ownerId == userId || $0.ownerId == "guest") }) { context.delete(existingItem); try? context.save() } }
 }
 
 private struct PodcastScoreView: View {

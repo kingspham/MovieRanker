@@ -66,25 +66,40 @@ struct PublicProfileView: View {
                 }
                 .padding(.top)
 
-                // STATS ROW
+                // STATS ROW - Clickable stats
                 if !isLoading {
                     HStack(spacing: 24) {
-                        VStack {
-                            Text("\(stats?.totalLogs ?? 0)").font(.headline)
-                            Text("Ranked").font(.caption).foregroundStyle(.secondary)
+                        NavigationLink(destination: UserRankedListView(profile: profile, items: items)) {
+                            VStack {
+                                Text("\(stats?.totalLogs ?? 0)").font(.headline)
+                                Text("Ranked").font(.caption).foregroundStyle(.secondary)
+                            }
                         }
-                        VStack {
-                            Text("\(followerCount)").font(.headline)
-                            Text("Followers").font(.caption).foregroundStyle(.secondary)
+                        .buttonStyle(.plain)
+
+                        NavigationLink(destination: FollowListView(userId: profile.id.uuidString, mode: .followers)) {
+                            VStack {
+                                Text("\(followerCount)").font(.headline)
+                                Text("Followers").font(.caption).foregroundStyle(.secondary)
+                            }
                         }
-                        VStack {
-                            Text("\(followingCount)").font(.headline)
-                            Text("Following").font(.caption).foregroundStyle(.secondary)
+                        .buttonStyle(.plain)
+
+                        NavigationLink(destination: FollowListView(userId: profile.id.uuidString, mode: .following)) {
+                            VStack {
+                                Text("\(followingCount)").font(.headline)
+                                Text("Following").font(.caption).foregroundStyle(.secondary)
+                            }
                         }
-                        VStack {
-                            Text("\(sharedCount)").font(.headline)
-                            Text("In Common").font(.caption).foregroundStyle(.secondary)
+                        .buttonStyle(.plain)
+
+                        NavigationLink(destination: InCommonView(profile: profile, items: items, myId: myId)) {
+                            VStack {
+                                Text("\(sharedCount)").font(.headline)
+                                Text("In Common").font(.caption).foregroundStyle(.secondary)
+                            }
                         }
+                        .buttonStyle(.plain)
                     }
                     .padding()
                     .background(Color.gray.opacity(0.05))
@@ -364,8 +379,152 @@ struct PublicLog: Identifiable {
     let posterPath: String?
     let score: Int?
     let tmdbID: Int
+    let mediaType: String?
+
+    init(id: UUID, title: String, posterPath: String?, score: Int?, tmdbID: Int, mediaType: String? = "movie") {
+        self.id = id
+        self.title = title
+        self.posterPath = posterPath
+        self.score = score
+        self.tmdbID = tmdbID
+        self.mediaType = mediaType
+    }
 
     var posterURL: URL? {
         TMDbClient.makeImageURL(path: posterPath ?? "", size: .w185)
+    }
+}
+
+// MARK: - User's Ranked List View
+struct UserRankedListView: View {
+    let profile: SocialProfile
+    let items: [PublicLog]
+
+    var sortedItems: [PublicLog] {
+        items.sorted { ($0.score ?? 0) > ($1.score ?? 0) }
+    }
+
+    var body: some View {
+        List {
+            ForEach(sortedItems) { item in
+                NavigationLink {
+                    let tmdbItem = TMDbItem(id: item.tmdbID, title: item.title, posterPath: item.posterPath, mediaType: item.mediaType ?? "movie")
+                    MovieInfoView(tmdb: tmdbItem, mediaType: item.mediaType ?? "movie")
+                } label: {
+                    HStack(spacing: 12) {
+                        if let url = item.posterURL {
+                            AsyncImage(url: url) { phase in
+                                if let img = phase.image { img.resizable().scaledToFill() }
+                                else { Color.gray.opacity(0.2) }
+                            }
+                            .frame(width: 50, height: 75)
+                            .cornerRadius(6)
+                        } else {
+                            RoundedRectangle(cornerRadius: 6)
+                                .fill(Color.gray.opacity(0.2))
+                                .frame(width: 50, height: 75)
+                        }
+
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(item.title)
+                                .font(.headline)
+                                .lineLimit(2)
+                        }
+
+                        Spacer()
+
+                        if let score = item.score {
+                            ZStack {
+                                Circle()
+                                    .stroke(scoreColor(score), lineWidth: 3)
+                                    .frame(width: 40, height: 40)
+                                Text("\(score)")
+                                    .font(.caption)
+                                    .fontWeight(.black)
+                                    .foregroundStyle(scoreColor(score))
+                            }
+                        }
+                    }
+                    .padding(.vertical, 4)
+                }
+            }
+        }
+        .navigationTitle("\(profile.displayName)'s Rankings")
+        .listStyle(.plain)
+    }
+
+    private func scoreColor(_ score: Int) -> Color {
+        if score >= 90 { return .green }
+        if score >= 70 { return .blue }
+        if score >= 50 { return .orange }
+        return .red
+    }
+}
+
+// MARK: - In Common View
+struct InCommonView: View {
+    let profile: SocialProfile
+    let items: [PublicLog]
+    let myId: String
+
+    @Environment(\.modelContext) private var context
+
+    var inCommonItems: [PublicLog] {
+        let allMovies = (try? context.fetch(FetchDescriptor<Movie>())) ?? []
+        let myMovies = allMovies.filter { $0.ownerId == myId }
+        let myTmdbIDs = Set(myMovies.compactMap { $0.tmdbID })
+        return items.filter { myTmdbIDs.contains($0.tmdbID) }
+    }
+
+    var body: some View {
+        Group {
+            if inCommonItems.isEmpty {
+                ContentUnavailableView(
+                    "Nothing in Common Yet",
+                    systemImage: "person.2.slash",
+                    description: Text("Watch more movies to find what you have in common!")
+                )
+            } else {
+                List {
+                    ForEach(inCommonItems) { item in
+                        NavigationLink {
+                            let tmdbItem = TMDbItem(id: item.tmdbID, title: item.title, posterPath: item.posterPath, mediaType: item.mediaType ?? "movie")
+                            MovieInfoView(tmdb: tmdbItem, mediaType: item.mediaType ?? "movie")
+                        } label: {
+                            HStack(spacing: 12) {
+                                if let url = item.posterURL {
+                                    AsyncImage(url: url) { phase in
+                                        if let img = phase.image { img.resizable().scaledToFill() }
+                                        else { Color.gray.opacity(0.2) }
+                                    }
+                                    .frame(width: 50, height: 75)
+                                    .cornerRadius(6)
+                                } else {
+                                    RoundedRectangle(cornerRadius: 6)
+                                        .fill(Color.gray.opacity(0.2))
+                                        .frame(width: 50, height: 75)
+                                }
+
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(item.title)
+                                        .font(.headline)
+                                        .lineLimit(2)
+                                    if let score = item.score {
+                                        Text("\(profile.displayName) rated: \(score)")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+
+                                Spacer()
+                            }
+                            .padding(.vertical, 4)
+                        }
+                    }
+                }
+                .listStyle(.plain)
+            }
+        }
+        .navigationTitle("In Common")
     }
 }
