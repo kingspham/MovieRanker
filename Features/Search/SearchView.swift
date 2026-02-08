@@ -323,12 +323,12 @@ struct SearchView: View {
             async let booksTask = BooksAPI().searchBooks(query: query)
             async let podcastsTask = PodcastsAPI().search(query: query)
 
-            // Do a dedicated person search if query looks like a name (runs before awaiting others)
-            let personResults: [TMDbItem]
-            if looksLikeName {
+            // Dedicated person search for name-like queries (supplements multi-search results)
+            async let personTask: [TMDbItem] = {
+                guard looksLikeName else { return [] }
                 do {
                     let personPage = try await client.searchPerson(query: searchQuery)
-                    personResults = personPage.results.map { person in
+                    return personPage.results.map { person in
                         TMDbItem(
                             id: person.id,
                             name: person.displayTitle,
@@ -340,17 +340,20 @@ struct SearchView: View {
                     }
                 } catch {
                     print("Person search error: \(error)")
-                    personResults = []
+                    return []
                 }
-            } else {
-                personResults = []
-            }
+            }()
 
-            let (tmdbPage, bookResults, podcastResults) = try await (tmdbTask, booksTask, podcastsTask)
+            let (tmdbPage, bookResults, podcastResults, dedicatedPeople) = try await (tmdbTask, booksTask, podcastsTask, personTask)
             let visualResults = tmdbPage.results.filter { $0.mediaType == "movie" || $0.mediaType == "tv" }
-            let peopleResults = tmdbPage.results.filter { $0.mediaType == "person" }
+            let multiSearchPeople = tmdbPage.results.filter { $0.mediaType == "person" }
 
-            self.results = visualResults + peopleResults + bookResults + podcastResults
+            // Merge people results, preferring dedicated search (more complete) and deduping by ID
+            let existingPeopleIDs = Set(multiSearchPeople.map { $0.id })
+            let uniqueDedicatedPeople = dedicatedPeople.filter { !existingPeopleIDs.contains($0.id) }
+            let allPeople = multiSearchPeople + uniqueDedicatedPeople
+
+            self.results = visualResults + allPeople + bookResults + podcastResults
             self.hasSearched = true
 
             if results.isEmpty && query.count >= 2 {

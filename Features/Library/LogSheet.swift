@@ -241,9 +241,32 @@ struct LogSheet: View {
         }
         
         try? context.save()
+
+        // Send notifications to tagged users (only for new logs, not edits)
+        if existingLog == nil && !taggedUsers.isEmpty {
+            Task {
+                await sendTagNotifications()
+            }
+        }
+
         dismiss()
         if existingLog == nil {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { showRanking = true }
+        }
+    }
+
+    private func sendTagNotifications() async {
+        let movieTitle = movie.title
+        let mediaWord = movie.mediaType == "book" ? "read" : (movie.mediaType == "podcast" ? "listen" : "watch")
+
+        for taggedUser in taggedUsers {
+            let message = "tagged you in their \(mediaWord) of \(movieTitle)"
+            await NotificationService.shared.sendNotification(
+                to: taggedUser.id,
+                type: "tagged",
+                message: message,
+                relatedId: movie.tmdbID != nil ? UUID() : nil // Use a new UUID since we don't have the log ID yet
+            )
         }
     }
 }
